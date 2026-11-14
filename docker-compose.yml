@@ -1,0 +1,47 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    restart: unless-stopped
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    ports:
+      - "127.0.0.1:6333:6333"
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+      - ./hf_cache:/root/.cache/huggingface
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - qdrant
+
+  caddy:
+    image: caddy:2.9.1
+    restart: unless-stopped
+    profiles: ["prod"]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
+

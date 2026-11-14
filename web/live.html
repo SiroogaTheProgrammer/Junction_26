@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live test · Online narrative mapping</title>
+  <link rel="preload" href="/assets/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="module" src="/assets/live.js"></script>
+</head>
+<body>
+  <main id="stage" class="stage">
+    <div class="labels" role="group" aria-label="Post groups growing as posts arrive. Ball area shows post count; colour shows concern."></div>
+    <div class="corner left"><a class="plain" href="/">← menu</a><span id="info">live test</span></div>
+    <div id="notice" class="notice" role="status"><p>connecting<span class="cursor" aria-hidden="true">_</span></p></div>
+    <aside id="card" class="card" aria-live="polite" hidden></aside>
+    <div id="ranking" class="ranking" aria-label="Most active clouds so far"></div>
+    <div class="status" role="status">
+      <strong id="arrived">0</strong>
+      <span id="rate"></span>
+      <span id="clock"></span>
+    </div>
+  </main>
+</body>
+</html>

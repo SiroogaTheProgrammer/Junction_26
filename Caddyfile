@@ -1,0 +1,7 @@
+{$SITE_ADDRESS} {
+    # Chat uploads: 4 files of 4 MB, base64-encoded, plus the message.
+    request_body {
+        max_size 24MB
+    }
+    reverse_proxy app:8000
+}

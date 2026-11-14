@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools==75.8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coordinated-behavior-detector"
+version = "0.1.0"
+description = "A descriptive detector for coordinated behavior in public social posts."
+requires-python = ">=3.11"
+dependencies = [
+    "datasketch==1.6.5",
+    "datasets==3.3.2",
+    "fastapi==0.115.11",
+    "numpy==2.2.3",
+    "openai==1.66.3",
+    "pandas==2.2.3",
+    "pyarrow==19.0.1",
+    "pydantic==2.10.6",
+    "pydantic-settings==2.8.1",
+    "pypdf==7.1.0",
+    "qdrant-client==1.13.2",
+    "scikit-learn==1.6.1",
+    "sentence-transformers==3.4.1",
+    "torch==2.6.0",
+    "umap-learn==0.5.7",
+    "uvicorn[standard]==0.34.0",
+]
+
+[project.optional-dependencies]
+dev = ["httpx==0.28.1", "pytest==8.3.5"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

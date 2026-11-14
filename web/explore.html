@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Explore · Online narrative mapping</title>
+  <link rel="preload" href="/assets/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="module" src="/assets/explore.js"></script>
+</head>
+<body>
+  <main id="stage" class="stage">
+    <div class="labels" role="group" aria-label="Post groups. Ball area shows post count; colour shows concern."></div>
+    <div class="corner left"><a class="plain" href="/">← menu</a><span id="info"></span></div>
+    <div id="notice" class="notice" role="status"><p>loading posts<span class="cursor" aria-hidden="true">_</span></p></div>
+    <aside id="card" class="card" aria-live="polite" hidden></aside>
+    <section class="chat" aria-label="Ask Nemotron 3.5 Super">
+      <div id="thread" class="thread" aria-live="polite"></div>
+      <div id="chips" class="chips"></div>
+      <form id="composer" class="composer">
+        <label class="attach" title="Attach files or articles"><span aria-hidden="true">＋</span>
+          <input id="files" type="file" multiple aria-label="Attach files or articles"
+            accept=".txt,.md,.markdown,.csv,.tsv,.json,.log,.xml,.html,.htm,.pdf,image/png,image/jpeg,image/webp,image/gif">
+        </label>
+        <textarea id="prompt" rows="1" maxlength="8000" aria-label="Message to Nemotron 3.5 Super"
+          placeholder="Ask Nemotron 3.5 Super — paste a post, or attach a file or article"></textarea>
+        <span class="hint" aria-hidden="true">↵</span>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

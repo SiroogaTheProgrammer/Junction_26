@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Map what is being said online and spot when it is being pushed, not shared.">
+  <title>Online narrative mapping</title>
+  <link rel="preload" href="/assets/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="module" src="/assets/menu.js"></script>
+</head>
+<body>
+  <main class="menu">
+    <h1>Online narrative mapping</h1>
+    <p class="lead">We map what's being said online and spot when it's being pushed, not shared.</p>
+    <ol>
+      <li>10,000 public Bluesky posts are sampled at random from a fixed dataset.</li>
+      <li>Similar posts are grouped using their text embeddings. Each ball is one group: its area shows the number of posts and its colour shows concern.</li>
+      <li>Nemotron Lightning names each group and describes its framing. Repeated text, dominant authors and bursts of posting add to a review priority from 0 to 100. Groups that score 0 are dropped from the view.</li>
+      <li>Ask Nemotron 3.5 Super about a post, file, image or article. It assesses propaganda-style persuasion in the original material, while a separate judge reviews its relationship to the closest group.</li>
+    </ol>
+    <nav class="modes" aria-label="Demo modes">
+      <a href="/explore"><strong>Explore groups</strong><span>The 10,000-post run, preloaded. Prompt Nemotron 3.5 Super and attach files or articles.</span><i aria-hidden="true">→</i></a>
+      <a href="/live"><strong>Live test</strong><span>The same posts replayed as incoming traffic through this server. Group balls grow as posts arrive.</span><i aria-hidden="true">→</i></a>
+    </nav>
+    <div class="note">
+      <p id="menu-status">&nbsp;</p>
+      <p>Propaganda-style persuasion can be identified without deciding truth or intent. It does not by itself prove coordination. Group review priority is a triage score, not a probability of propaganda.</p>
+      <p>Ball positions are only a layout, not a measure of similarity. Click a group for its explanation and example posts.</p>
+    </div>
+  </main>
+</body>
+</html>
