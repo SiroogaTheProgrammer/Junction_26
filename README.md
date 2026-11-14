@@ -8,7 +8,9 @@ historical dataset; it is not connected to a live social-media feed.
 
 - [Use the website](#use-the-website)
 - [Understand the results](#understand-the-results)
+- [Browse or switch datasets](#browse-or-switch-datasets)
 - [Start it on your computer](#start-it-on-your-computer)
+- [Keep the VPS disk from filling up](#keeping-the-vps-disk-from-filling-up)
 - [Troubleshooting](#troubleshooting)
 - [Technical details and settings](#technical-details-and-settings)
 
@@ -54,6 +56,37 @@ multiple accounts. These overlapping candidates can be missed or be benign;
 they require human review. For chat, Super reads the submitted material and
 its content assessment is kept separate from the spread review.
 
+## Browse or switch datasets
+
+Select **Browse datasets** on the menu to read the raw posts, 25 at a time.
+Use **next**, **previous** or **random page**. The dataset used by live
+analysis is marked **live**. Rows come straight from Hugging Face, so browsing
+needs internet access and shows the dataset's latest version. Two datasets are
+available:
+
+- **Bluesky posts in 15 languages** (`itsmebatuhan/bluesky-10m-posts-15-languages`),
+  the default for live analysis.
+- **US Trump 2020 social media** (`falbanese/US_Trump_2020_social_media`):
+  about 2.3 million Twitter posts from May 2020, MIT licence. It has only
+  numeric author and target IDs, a date and the text: no post links, language
+  or image information, and the timezone is not stated (times are read as UTC).
+  Posts are identified by their position in the dataset.
+
+To run live analysis on the Trump 2020 dataset, an administrator sets these
+values in `.env` and restarts the app. Use a **new, empty data folder** so the
+Bluesky progress is kept:
+
+```bash
+LIVE_DATASET=falbanese/US_Trump_2020_social_media
+LIVE_DATASET_REVISION=main
+DATA_DIR=/app/data/trump-2020   # or data/trump-2020 when running without Docker
+```
+
+To return to Bluesky, restore the previous three values. In Docker, the
+Compose file's `DATA_DIR` setting overrides `.env`, so change it there. The
+app refuses to start live processing if the dataset does not match the folder's
+saved progress.
+
 ## Start it on your computer
 
 If someone has already set up the app, open a terminal in the project folder
@@ -90,6 +123,35 @@ saved cursor when the existing data volume is preserved. Keep the VPS's
 existing Traefik routing and network configuration; the repository's Compose
 file does not configure Hostinger's Traefik automatically. Protect public
 access with authentication and appropriate rate limits before exposing it.
+
+### Keeping the VPS disk from filling up
+
+The app cleans up after itself: when it starts, and then every 6 hours, it
+deletes everything the live analysis does not need. It keeps only:
+
+- the small saved position (`live_progress.json`) in the data folder;
+- the downloaded embedding model and the current live dataset's small
+  description files.
+
+It deletes old 10,000-post results and other files the app created in the data
+folder, older dataset downloads in the Hugging Face cache, and download logs
+older than a day. Files it did not create, such as `.txt` notes, are left alone.
+The server log lists what was deleted. Set `DATA_DIR=/app/data` (the whole data
+volume) so old run folders inside it are included.
+
+Docker keeps old images and its own logs. Once, after updating, run this in the
+project folder on the VPS:
+
+```bash
+make vps-clean          # removes the unused Qdrant container, old images and build cache
+sudo rm -rf qdrant_storage   # old vector database; live analysis does not use it
+df -h /                 # check free space
+```
+
+`make deploy` prunes old images automatically, and the app's Docker logs are
+capped at 30 MB. To preview the app's cleanup without deleting anything, run
+`docker compose exec app python -m detector cleanup --dry-run`. To turn
+automatic cleanup off, set `STORAGE_CLEANUP=false`.
 
 ## Troubleshooting
 
@@ -130,9 +192,10 @@ unknown for this dataset. The older `author`/`uri` dataset remains supported.
 | `SAMPLE_SIZE` | Posts sampled per group for analysis (default 50, or all posts in a smaller group); an explicit `.env` value overrides the default |
 | `HF_DATASET` | Defaults to `itsmebatuhan/bluesky-10m-posts-15-languages`; `--dataset` overrides an older `.env` value |
 | `MIN_REVIEW_PRIORITY` | Current completed groups below this score are dropped (default 1; stale assessments remain visible) |
-| `LIVE_DATASET` | Dataset streamed in the live test; defaults to the 15-language Bluesky dataset |
+| `LIVE_DATASET` | Dataset streamed in the live test; defaults to the 15-language Bluesky dataset. `falbanese/US_Trump_2020_social_media` is also supported (use a separate `DATA_DIR`) |
 | `LIVE_DATASET_REVISION` | Dataset revision to resolve on the first run (default `main`); its commit is pinned in the checkpoint |
 | `LIVE_BATCH_SIZE`, `LIVE_WINDOW_POSTS` | Live batch size (500) and maximum rolling window (50,000); batch size must not exceed the window |
+| `STORAGE_CLEANUP`, `STORAGE_CLEANUP_HOURS` | Delete data the live view does not need at startup and every 6 hours (default on); see [storage](#keeping-the-vps-disk-from-filling-up) |
 | `LIVE_MIN_CLUSTER_SIZE`, `LIVE_MIN_SAMPLES` | HDBSCAN group size (10) and density requirement (3) for Live and offline topic refinement; offline initial topics use `HDBSCAN_*` settings |
 | `CHAT_JUDGE_TIMEOUT_S` | Time budget for the contextual judge, default 60 seconds; an existing `.env` value overrides it |
 | `CHAT_ASSESSMENT_MAX_TOKENS` | Maximum output-token budget for structured content and spread assessments (default 32,768; set lower if the endpoint requires it) |
@@ -205,17 +268,21 @@ The live processor retains embeddings, text and results for up to 50,000
 eligible posts in memory, evicting whole old batches. Embeddings alone require
 about 77 MB at 50,000 posts (384 float32 values each); chat snapshots and post
 data need additional memory. It does not write live post
-vectors, samples or analyses to disk or alter the offline dataset/Qdrant.
-Dataset streaming and model libraries can still maintain their own Hugging Face
-metadata/model caches and logs: monitor those separately, and do not delete
-existing files without checking what uses them. Restart loses the live window.
+vectors, samples or analyses to disk. Storage cleanup (`detector/storage.py`,
+`STORAGE_CLEANUP`, `STORAGE_CLEANUP_HOURS`) removes app-created files
+(`.parquet`, `.json`, `.jsonl`, `.npy`, `.npz`, `.tmp`) in `DATA_DIR` except the
+Live cursor, Hugging Face hub repositories other than `EMBED_MODEL` and
+`LIVE_DATASET` plus unreferenced old revisions, the prepared `datasets` cache
+(Live only streams), and Xet logs older than a day. It refuses a root or home
+`DATA_DIR`. Restart loses the live window.
 
 ## Legacy offline pipeline (optional)
 
-Python 3.11+ and Qdrant are required.
+Python 3.11+ and Qdrant are required. Storage cleanup deletes the pipeline's
+results, so set `STORAGE_CLEANUP=false` while using it.
 
 ```bash
-docker compose up -d qdrant
+docker compose --profile offline up -d qdrant
 LLM_WARMUP_TIMEOUT_S=120 LLM_TIMEOUT_S=60 make llm-check
 
 # New dataset, separate artifacts/collection; labels every cloud.
@@ -359,6 +426,11 @@ and a body size limit (also set in the `Caddyfile`).
   dominant authors, bursts) adds up to 40.
 - **Concern** describes framing and spread. It is not a verdict on truth or on
   people. Human calibration is still needed before treating rankings as validated.
+- **Possible swarms raise concern by one level.** When far more posts than usual
+  are near-identical, at least 5 accounts posted them and no single account
+  dominates, concern goes up one level (at most to medium), even without a clear
+  claim, blame or call to action. The card says when this happened. It is a
+  reason to review, not proof of bots.
 - A failed or unanalysed cloud is shown as such and is never dropped as insignificant.
 
 Full contracts: [project spec](./Coordinated-behavior%20detector%20project%20spec.md),

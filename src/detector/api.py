@@ -8,8 +8,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Callable, Literal
 
-import pandas as pd
+import httpx
 import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +29,20 @@ from detector.stats import baseline_for, describe_signals, is_organic_looking
 logger = logging.getLogger(__name__)
 settings = get_settings()
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+ROWS_API = "https://datasets-server.huggingface.co/rows"
+DATASETS = {
+    "bluesky": {
+        "repo": "itsmebatuhan/bluesky-10m-posts-15-languages",
+        "name": "Bluesky posts in 15 languages",
+        "about": "Public Bluesky posts from 2026 with author IDs, post keys, language and reply flags.",
+    },
+    "trump-2020": {
+        "repo": "falbanese/US_Trump_2020_social_media",
+        "name": "US Trump 2020 social media",
+        "about": "Twitter posts from May 2020 mentioning Trump. MIT licence. "
+                 "Author and target IDs only; no post links. Timezone not stated.",
+    },
+}
 
 
 def _serialize_timestamp(value: Any) -> str | None:
@@ -151,10 +166,25 @@ async def lifespan(app: FastAPI):
     app.state.chat_times = deque()
     app.state.live = LiveProcessor(settings)
     app.state.dashboard = None
+    cleaner = asyncio.create_task(_storage_cleanup()) if settings.storage_cleanup else None
     try:
         yield
     finally:
+        if cleaner is not None:
+            cleaner.cancel()
         await app.state.live.close()
+
+
+async def _storage_cleanup() -> None:
+    """Keep only what the running Live view needs; failures are logged and retried next interval."""
+    from detector.storage import cleanup
+
+    while True:
+        try:
+            await asyncio.to_thread(cleanup, settings)
+        except Exception:
+            logger.exception("Storage cleanup failed")
+        await asyncio.sleep(settings.storage_cleanup_hours * 3600)
 
 
 app = FastAPI(
@@ -565,6 +595,38 @@ def cluster_posts(
     return {"cluster_id": cluster_id, "offset": offset, "limit": limit, "total": len(ids), "posts": items}
 
 
+@app.get("/api/datasets")
+def list_datasets() -> list[dict[str, Any]]:
+    return [
+        {"id": key, "name": item["name"], "repo": item["repo"], "about": item["about"],
+         "live": item["repo"] == settings.live_dataset}
+        for key, item in DATASETS.items()
+    ]
+
+
+@app.get("/api/datasets/{dataset_id}/rows")
+async def dataset_rows(
+    dataset_id: str, offset: int = Query(default=0, ge=0, le=100_000_000),
+    length: int = Query(default=25, ge=1, le=100),
+) -> dict[str, Any]:
+    item = DATASETS.get(dataset_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown dataset")
+    params = {"dataset": item["repo"], "config": "default", "split": "train", "offset": offset, "length": length}
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(ROWS_API, params=params)
+        response.raise_for_status()
+        body = response.json()
+        rows = [entry["row"] for entry in body["rows"]]
+        columns = [feature["name"] for feature in body["features"]]
+        total = int(body["num_rows_total"])
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        logger.warning("Dataset preview failed for %s: %s", item["repo"], exc)
+        raise HTTPException(status_code=502, detail="Hugging Face did not return dataset rows; try again later") from exc
+    return {"id": dataset_id, "repo": item["repo"], "columns": columns, "rows": rows, "offset": offset, "total": total}
+
+
 def _page(name: str) -> FileResponse:
     page = WEB_DIR / name
     if not page.is_file():
@@ -580,6 +642,11 @@ def menu_page() -> FileResponse:
 @app.get("/explore")
 def explore_page() -> FileResponse:
     return _page("explore.html")
+
+
+@app.get("/data")
+def data_page() -> FileResponse:
+    return _page("data.html")
 
 
 @app.get("/live")

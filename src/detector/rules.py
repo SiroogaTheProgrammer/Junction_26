@@ -4,6 +4,19 @@ from detector.schema import Analysis, Verdict
 from detector.stats import active_anomaly_stats, baseline_for, behavior_anomaly
 
 Tier = Literal["full", "faded", "hidden"]
+SWARM_MIN_ACCOUNTS = 5
+SWARM_MAX_TOP_AUTHOR_SHARE = 0.5
+SWARM_RAISE = {"none": "low", "insufficient_evidence": "low", "low": "medium"}
+
+
+def swarm_indicators(cluster: dict[str, Any]) -> bool:
+    """Above-baseline near-duplicate text from many accounts, with no single account dominating."""
+    stats = cluster.get("stats", cluster)
+    return (
+        "dup_ratio" in cluster.get("anomaly_triggered_by", ())
+        and int(stats.get("dup_authors", 0)) >= SWARM_MIN_ACCOUNTS
+        and float(stats.get("top_author_share", 1)) <= SWARM_MAX_TOP_AUTHOR_SHARE
+    )
 
 
 def display_tier(
@@ -90,6 +103,9 @@ def apply_rules(
         change("concern_level", "insufficient_evidence", "missing_content_evidence")
     if data["relevance"] < 0.2 and not cluster["behavior_anomaly"] and not (data["claims"] or data["techniques"]) and data["concern_level"] not in {"none", "insufficient_evidence"}:
         change("concern_level", "none", "plain_topic")
+    # Coordination indicators raise concern one level even without claims; still not proof of bots.
+    if data["concern_level"] in SWARM_RAISE and swarm_indicators(cluster):
+        change("concern_level", SWARM_RAISE[data["concern_level"]], "swarm_indicators")
     if len(valid) < cluster.get("min_sample_for_confidence", 8):
         change("confidence", min(0.4, data["confidence"]), "small_sample")
     return Analysis.model_validate(data), changes

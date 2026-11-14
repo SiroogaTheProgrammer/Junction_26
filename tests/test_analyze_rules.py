@@ -147,13 +147,43 @@ def test_anomaly_uses_strict_percentile_for_three_signals():
 @pytest.mark.parametrize("field,limit", [
     ("summary", 40), ("relevance_reason", 25), ("explanation", 60),
 ])
-def test_overlong_text_truncates(field, limit):
+def test_overlong_text_is_kept_in_full(field, limit):
     data = _analysis().model_dump()
-    data[field] = "word " * (limit + 10)
-    parsed = Analysis.model_validate(data)
-    text = getattr(parsed, field)
-    assert len(text.split()) == limit
-    assert text.endswith("...")
+    data[field] = " ".join(["word"] * (limit + 10))
+    text = getattr(Analysis.model_validate(data), field)
+    assert len(text.split()) == limit + 10
+    assert not text.endswith("...")
+
+
+SWARM = {"anomaly_triggered_by": ["dup_ratio"], "dup_authors": 8, "top_author_share": 0.2}
+
+
+@pytest.mark.parametrize("model,expected", [
+    ("none", "low"), ("insufficient_evidence", "low"), ("low", "medium"), ("medium", "medium"), ("high", "high"),
+])
+def test_swarm_indicators_raise_concern_one_level(model, expected):
+    analysis = _analysis(model)
+    if model not in {"medium", "high"}:
+        analysis.claims, analysis.techniques = [], []
+    parsed, changes = apply_rules(analysis, rule_context(behavior_anomaly=True, **SWARM))
+    assert parsed.concern_level == expected
+    assert any(change["rule"] == "swarm_indicators" for change in changes) == (model != expected)
+
+
+@pytest.mark.parametrize("override", [
+    {"anomaly_triggered_by": ["top_author_share"]}, {"dup_authors": 4}, {"top_author_share": 0.51},
+])
+def test_swarm_rule_needs_duplicates_from_many_accounts_without_one_dominant(override):
+    analysis = _analysis("low")
+    parsed, changes = apply_rules(analysis, rule_context(behavior_anomaly=True, **{**SWARM, **override}))
+    assert parsed.concern_level == "low"
+    assert all(change["rule"] != "swarm_indicators" for change in changes)
+
+
+def test_swarm_rule_reads_nested_stats():
+    analysis = _analysis("none")
+    context = rule_context(anomaly_triggered_by=["dup_ratio"], stats={"dup_authors": 6, "top_author_share": 0.1})
+    assert apply_rules(analysis, context)[0].concern_level == "low"
 
 
 def test_full_label_is_retained_and_heading_marker_removed():

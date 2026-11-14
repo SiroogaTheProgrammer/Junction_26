@@ -36,6 +36,9 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}, api
     };
     const concern = section("Concern");
     concern.append(node("p", parsed ? `${words(parsed.concern_level)} concern` : `Assessment ${words(analysis.status)}`, "concern-summary"));
+    if (analysis.rule_log?.some((entry) => entry.rule === "swarm_indicators")) {
+      concern.append(node("p", "Raised one level: near-identical text from many accounts, above similar groups. Possible swarm; not proof of bots.", "small"));
+    }
     if (cluster.source_scope === "repeated text across live batches") {
       concern.append(node("p", "Repeated text from multiple accounts across live batches; this overlaps other groups and does not prove coordination.", "small"));
     }

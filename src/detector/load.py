@@ -23,9 +23,30 @@ FEATURES = Features({
 })
 
 
-def prepare_frame(frame: pd.DataFrame, min_chars: int) -> tuple[pd.DataFrame, dict[str, int]]:
-    """Map both dataset schemas; missing optional metadata stays unknown."""
+TWITTER_2020_COLUMNS = {"source_id", "date", "texto"}
+
+
+def _map_twitter_2020(frame: pd.DataFrame, row_offset: int | None) -> pd.DataFrame:
+    """falbanese/US_Trump_2020_social_media has no post IDs, so rows are keyed by stream position."""
+    if row_offset is None:
+        raise ValueError("The Trump 2020 dataset needs a stream row offset to identify posts")
+    author = pd.to_numeric(frame["source_id"], errors="coerce").astype("Int64").astype("string")
+    return pd.DataFrame({
+        "uri": [f"row:{row_offset + index}" for index in range(len(frame))],
+        "author": ("twitter-user:" + author).where(author.notna()),
+        # The dataset card states no timezone; times are read as UTC so relative timing stays usable.
+        "created_at": frame["date"],
+        "text": frame["texto"],
+    }, index=frame.index)
+
+
+def prepare_frame(
+    frame: pd.DataFrame, min_chars: int, row_offset: int | None = None,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Map supported dataset schemas; missing optional metadata stays unknown."""
     frame = frame.copy()
+    if "text" not in frame and TWITTER_2020_COLUMNS.issubset(frame.columns):
+        frame = _map_twitter_2020(frame, row_offset)
     required = ("text", "created_at")
     missing = [name for name in required if name not in frame]
     if "author" not in frame and "did" not in frame:

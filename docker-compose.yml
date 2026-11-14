@@ -1,7 +1,9 @@
 services:
+  # Only the old offline pipeline uses Qdrant; start it with --profile offline.
   qdrant:
     image: qdrant/qdrant:v1.13.2
     restart: unless-stopped
+    profiles: ["offline"]
     volumes:
       - ./qdrant_storage:/qdrant/storage
     ports:
@@ -21,8 +23,11 @@ services:
       - ./hf_cache:/root/.cache/huggingface
     ports:
       - "127.0.0.1:8000:8000"
-    depends_on:
-      - qdrant
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   caddy:
     image: caddy:2.9.1

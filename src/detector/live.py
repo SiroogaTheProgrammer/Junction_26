@@ -65,8 +65,8 @@ def _source(settings: Settings, revision: str) -> Any:
     return dataset["train"]
 
 
-def _prepare(raw: list[dict], settings: Settings, first_id: int) -> pd.DataFrame:
-    frame, _ = prepare_frame(pd.DataFrame(raw), settings.min_post_chars)
+def _prepare(raw: list[dict], settings: Settings, first_id: int, row_offset: int = 0) -> pd.DataFrame:
+    frame, _ = prepare_frame(pd.DataFrame(raw), settings.min_post_chars, row_offset)
     frame = frame.drop_duplicates("uri").reset_index(drop=True)
     frame.insert(0, "post_id", range(first_id, first_id + len(frame)))
     return frame
@@ -263,7 +263,7 @@ class LiveProcessor:
                         self.status = "complete"
                         self.revision += 1
                         break
-                    frame = await asyncio.to_thread(_prepare, raw, self.settings, self.processed)
+                    frame = await asyncio.to_thread(_prepare, raw, self.settings, self.processed, self.scanned)
                     self.scanned += len(raw)
                     if frame.empty:
                         checkpoint.source_state = dataset.state_dict()

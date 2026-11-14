@@ -317,6 +317,7 @@ async def _analyze_one(
             analysis,
             {
                 **cluster, "valid_pids": valid_pids, "behavior_anomaly": anomaly.flag,
+                "anomaly_triggered_by": anomaly.triggered_by,
                 "organic_looking": is_organic_looking(cluster, baseline),
                 "min_sample_for_confidence": settings.min_sample_for_confidence,
             },

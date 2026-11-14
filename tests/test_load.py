@@ -109,3 +109,21 @@ def test_bounded_streaming_is_explicit_and_never_consumes_the_full_source(tmp_pa
 def test_dataset_schema_errors_are_explicit(rows, match):
     with pytest.raises(ValueError, match=match):
         prepare_frame(pd.DataFrame(rows), 0)
+
+
+def test_trump_2020_rows_map_to_stream_positions_without_inventing_metadata():
+    rows = [
+        {"Unnamed: 0": 0, "source_id": 361267889, "target_id": 25073877.0, "date": "2020-05-10 07:00:00", "texto": "Pray to be stronger men."},
+        {"Unnamed: 0": 1, "source_id": None, "target_id": None, "date": "2020-05-10 06:59:45", "texto": "No author on this one"},
+        {"Unnamed: 0": 0, "source_id": 509, "target_id": None, "date": "2020-05-10 06:58:00", "texto": "Same index, other file"},
+    ]
+    frame, counts = prepare_frame(pd.DataFrame(rows), 0, row_offset=1_000)
+    assert frame["uri"].tolist() == ["row:1000", "row:1002"]
+    assert frame["author"].tolist() == ["twitter-user:361267889", "twitter-user:509"]
+    assert str(frame["created_at"].iloc[0]) == "2020-05-10 07:00:00+00:00"
+    assert frame["lang"].isna().all() and frame["is_reply"].isna().all() and frame["has_images"].isna().all()
+    assert counts["valid_identifiers"] == 2
+    with pytest.raises(ValueError, match="stream row offset"):
+        prepare_frame(pd.DataFrame(rows), 0)
+    large = [{"source_id": 1165041307326328833, "target_id": None, "date": "2020-05-10 07:00:01", "texto": "Large author id"}]
+    assert prepare_frame(pd.DataFrame(large), 0, row_offset=0)[0]["author"].iloc[0] == "twitter-user:1165041307326328833"

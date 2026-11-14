@@ -31,6 +31,9 @@ def parser() -> argparse.ArgumentParser:
         elif command == "serve":
             subparser.add_argument("--host", default="127.0.0.1")
             subparser.add_argument("--port", type=int, default=8000)
+    cleanup_parser = subparsers.add_parser("cleanup", help="Delete old offline artifacts and unused caches")
+    cleanup_parser.add_argument("--data-dir", type=Path, help="Artifact folder (overrides DATA_DIR)")
+    cleanup_parser.add_argument("--dry-run", action="store_true", help="Only list what would be deleted")
     all_parser = subparsers.add_parser("all")
     all_parser.add_argument("--data-dir", type=Path, help="Artifact folder (overrides DATA_DIR)")
     all_parser.add_argument("--collection", help="Qdrant collection for this dataset")
@@ -94,6 +97,10 @@ def main() -> None:
 
         api.settings = settings
         uvicorn.run(api.app, host=args.host, port=args.port)
+    elif args.command == "cleanup":
+        from detector.storage import cleanup
+
+        cleanup(settings, dry_run=args.dry_run)
     elif args.command == "all":
         from detector.load import run as load
         from detector.embed import run as embed

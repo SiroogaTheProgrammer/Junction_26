@@ -272,8 +272,9 @@ Technique names: `fear_appeal`, `scapegoating`, `false_urgency`, `loaded_languag
 2. Clamp relevance/confidence to 0..1. Nonfinite scores are invalid.
 3. Mark medium/high concern as insufficient evidence if no cited claims or techniques survive validation (`missing_content_evidence`). Organic spread or a lookalike does not automatically erase evidenced content concern.
 4. Cap concern to none for low-relevance, non-anomalous material without cited claims or techniques (`plain_topic`).
-5. Cap confidence at 0.4 below `MIN_SAMPLE_FOR_CONFIDENCE`.
-6. Preserve `concern_level_model` and `relevance_model`; log every enforced change in `rule_log`.
+5. Raise concern one level (none or insufficient evidence to low, low to medium; never above medium) when near-duplicate text is above the p90 baseline, at least 5 accounts posted it, and the top account has at most half the posts (`swarm_indicators`). This is a coordination indicator, not proof of bots or shared control.
+6. Cap confidence at 0.4 below `MIN_SAMPLE_FOR_CONFIDENCE`.
+7. Preserve `concern_level_model` and `relevance_model`; log every enforced change in `rule_log`.
 
 Overlong summary, relevance reason and explanation are truncated with an ellipsis; full labels are retained.
 

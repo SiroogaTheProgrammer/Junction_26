@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     live_batch_size: int = Field(default=500, ge=25, le=5000)
     live_min_cluster_size: int = Field(default=10, ge=2)
     live_min_samples: int = Field(default=3, ge=1)
+    storage_cleanup: bool = True
+    storage_cleanup_hours: float = Field(default=6, gt=0)
 
     @model_validator(mode="after")
     def validate_relevance_thresholds(self) -> "Settings":

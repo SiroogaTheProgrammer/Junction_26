@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 TechniqueName = Literal[
@@ -64,16 +64,6 @@ class Analysis(BaseModel):
     def clean_label(cls, value: str) -> str:
         return value.strip().removeprefix("## ").strip()
 
-    @field_validator("summary", "relevance_reason", "explanation")
-    @classmethod
-    def word_limits(cls, value: str, info: ValidationInfo) -> str:
-        assert info.field_name is not None
-        limit = {"summary": 40, "relevance_reason": 25, "explanation": 60}[info.field_name]
-        words = value.split()
-        if len(words) > limit:
-            return " ".join(words[:limit]) + "..."
-        return value
-
     @classmethod
     def output_json_schema(cls) -> dict:
         schema = cls.model_json_schema()
@@ -98,13 +88,6 @@ class Verdict(BaseModel):
     concern_level: Literal["none", "low", "medium", "high", "insufficient_evidence"]
     confidence: float = Field(allow_inf_nan=False)
     explanation: str
-
-    @field_validator("label", "explanation")
-    @classmethod
-    def word_limits(cls, value: str, info: ValidationInfo) -> str:
-        limit = {"label": 6, "explanation": 60}[info.field_name or "explanation"]
-        words = value.split()
-        return " ".join(words[:limit]) + "..." if len(words) > limit else value
 
     @classmethod
     def output_json_schema(cls) -> dict:

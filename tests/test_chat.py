@@ -176,13 +176,13 @@ def test_contextual_spread_review_needs_spread_evidence(model_verdict, nearest, 
     assert [entry["rule"] for entry in log] == rules
 
 
-def test_verdict_scores_are_clamped_and_text_is_bounded():
+def test_verdict_scores_are_clamped_and_text_is_kept_in_full():
     raw = Verdict.model_validate(verdict(
         relevance=3, confidence=-1, techniques=["fear_appeal", "fear_appeal"], explanation="word " * 90,
     ))
     final, log = apply_verdict_rules(raw, cloud())
     assert (final.relevance, final.confidence, final.techniques) == (1.0, 0.0, ["fear_appeal"])
-    assert len(raw.explanation.split()) == 60
+    assert len(raw.explanation.split()) == 90
     assert {entry["rule"] for entry in log} == {"clamp", "duplicates"}
     assert Verdict.output_json_schema()["properties"]["confidence"]["maximum"] == 1
 

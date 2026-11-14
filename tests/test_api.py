@@ -1,3 +1,4 @@
+import time
 import shutil
 from pathlib import Path
 
@@ -164,3 +165,63 @@ def test_projection_cannot_silently_display_mismatched_data(tmp_path, monkeypatc
     monkeypatch.setattr(api, "settings", Settings(_env_file=None, data_dir=tmp_path))
     with pytest.raises(ValueError):
         api._load_dashboard_data()
+
+
+def test_dataset_browser_lists_allowed_datasets_and_pages_rows(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "settings", Settings(_env_file=None, data_dir=tmp_path))
+    seen = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"features": [{"name": "texto"}, {"name": "source_id"}],
+                    "rows": [{"row_idx": 25, "row": {"texto": "hello", "source_id": 509}}], "num_rows_total": 2_300_000}
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url, params):
+            seen.update(params, url=url)
+            return Response()
+
+    monkeypatch.setattr(api.httpx, "AsyncClient", Client)
+    with TestClient(api.app) as client:
+        assert client.get("/data").status_code == 200
+        listed = {item["id"]: item for item in client.get("/api/datasets").json()}
+        assert listed["trump-2020"]["repo"] == "falbanese/US_Trump_2020_social_media"
+        assert listed["bluesky"]["live"] is True and listed["trump-2020"]["live"] is False
+        body = client.get("/api/datasets/trump-2020/rows?offset=25&length=1").json()
+        assert body == {"id": "trump-2020", "repo": "falbanese/US_Trump_2020_social_media", "columns": ["texto", "source_id"],
+                        "rows": [{"texto": "hello", "source_id": 509}], "offset": 25, "total": 2_300_000}
+        assert seen["dataset"] == "falbanese/US_Trump_2020_social_media" and seen["offset"] == 25 and seen["length"] == 1
+        assert client.get("/api/datasets/other/rows").status_code == 404
+        assert client.get("/api/datasets/trump-2020/rows?length=500").status_code == 422
+
+        async def fail(self, url, params):
+            raise api.httpx.ConnectError("offline")
+        monkeypatch.setattr(Client, "get", fail)
+        failed = client.get("/api/datasets/trump-2020/rows")
+        assert failed.status_code == 502 and "Hugging Face" in failed.json()["detail"]
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_server_runs_storage_cleanup_at_startup_only_when_enabled(tmp_path, monkeypatch, enabled):
+    calls = []
+    monkeypatch.setattr("detector.storage.cleanup", lambda settings: calls.append(settings.data_path))
+    monkeypatch.setattr(api, "settings", Settings(_env_file=None, data_dir=tmp_path, storage_cleanup=enabled))
+    with TestClient(api.app) as client:
+        for _ in range(50):
+            if calls or not enabled:
+                break
+            time.sleep(0.02)
+        assert client.get("/api/health").status_code == 200
+    assert calls == ([tmp_path] if enabled else [])
