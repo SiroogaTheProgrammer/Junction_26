@@ -1,3 +1,5 @@
+import { groupLabel } from "./labels.js";
+
 const TONES = ["none", "low", "medium", "high"];
 
 // Pack final group sizes once, so replay arrivals grow in stable slots.
@@ -60,7 +62,7 @@ export function createMap(root, { onSelect = () => {}, labelAfter = 1 } = {}) {
       el.classList.toggle("matched", cloud.id === submission?.cloudId);
       el.classList.toggle("dimmed", selected != null && cloud.id !== selected);
       const level = cloud.row.status === "ok" ? cloud.row.concern_level : cloud.row.status;
-      const description = `${cloud.row.label || `Group ${cloud.id}`}, ${cloud.n.toLocaleString()} ${cloud.n === 1 ? "post" : "posts"}, concern ${level}, review priority ${cloud.row.review_priority} of 100`;
+      const description = `${groupLabel(cloud.row.label, cloud.id)}, ${cloud.n.toLocaleString()} ${cloud.n === 1 ? "post" : "posts"}, concern ${level}`;
       el.setAttribute("aria-label", description);
       el.title = `${description}${cloud.row.signals?.[0] ? `\n${cloud.row.signals[0]}` : ""}`;
       el.querySelector(".bubble-count").textContent = cloud.n.toLocaleString();
@@ -77,30 +79,46 @@ export function createMap(root, { onSelect = () => {}, labelAfter = 1 } = {}) {
   return {
     clouds,
     setClouds(rows, { preloaded = false } = {}) {
-      layer.replaceChildren();
-      clouds.clear();
+      const incoming = new Set(rows.map((row) => row.cluster_id));
+      for (const [id, cloud] of clouds) {
+        if (!incoming.has(id)) {
+          cloud.el?.remove();
+          clouds.delete(id);
+        }
+      }
       count = 0;
       for (const row of rows) {
-        const cloud = { id: row.cluster_id, row, shown: !row.discarded, n: preloaded ? row.size : 0, el: null };
+        let cloud = clouds.get(row.cluster_id);
+        if (!cloud) {
+          cloud = { id: row.cluster_id, row, shown: !row.discarded, n: 0, el: null };
+          clouds.set(cloud.id, cloud);
+        }
+        cloud.row = row;
+        cloud.shown = !row.discarded;
+        if (preloaded) cloud.n = row.size;
         count += cloud.n;
-        if (cloud.shown) {
+        if (cloud.shown && !cloud.el) {
           const el = document.createElement("button");
           el.type = "button";
           el.className = "group-bubble";
           el.hidden = true;
-          const level = row.status === "ok" && TONES.includes(row.concern_level) ? row.concern_level : "none";
-          el.style.setProperty("--label-color", `var(--concern-${level})`);
           const name = document.createElement("span");
           name.className = "bubble-name";
-          name.textContent = row.label || `Group ${row.cluster_id}`;
           const size = document.createElement("strong");
           size.className = "bubble-count";
           el.append(name, size);
           el.addEventListener("click", () => onSelect(cloud.id));
           layer.append(el);
           cloud.el = el;
+        } else if (!cloud.shown && cloud.el) {
+          cloud.el.remove();
+          cloud.el = null;
         }
-        clouds.set(cloud.id, cloud);
+        if (cloud.el) {
+          const level = row.status === "ok" && TONES.includes(row.concern_level) ? row.concern_level : "none";
+          cloud.el.style.setProperty("--label-color", `var(--concern-${level})`);
+          cloud.el.querySelector(".bubble-name").textContent = groupLabel(row.label, row.cluster_id);
+        }
       }
       packed = packBubbles(rows.filter((row) => !row.discarded));
       draw();

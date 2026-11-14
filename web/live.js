@@ -1,5 +1,7 @@
 import { createMap } from "./map.js";
 import { createGroupCard } from "./group-card.js";
+import { groupLabel } from "./labels.js";
+import { createChat } from "./chat.js";
 
 const byId = (id) => document.getElementById(id);
 let selected = null;
@@ -7,11 +9,33 @@ const map = createMap(byId("stage"), { onSelect: (id) => selectCloud(id) });
 const showCard = createGroupCard(
   byId("card"),
   (id) => { selected = map.select(id); return selected; },
-  () => {},
+  (visible) => {
+    byId("thread").hidden = visible;
+    byId("chips").hidden = visible;
+    if (!visible) byId("thread").scrollTop = byId("thread").scrollHeight;
+  },
   "/api/live/clusters",
 );
 const selectCloud = (id) => showCard(id);
-map.setInset(0, 230);
+const docked = matchMedia("(min-width: 1000px)");
+const dock = () => map.setInset(docked.matches ? byId("composer").getBoundingClientRect().width + 40 : 0, docked.matches ? 200 : 320);
+docked.addEventListener("change", dock);
+dock();
+
+async function setupChat() {
+  try {
+    const response = await fetch("/api/meta");
+    if (!response.ok) {
+      const body = await response.json();
+      throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${response.status}`);
+    }
+    const meta = await response.json();
+    createChat({ meta, rows: new Map(), selectCloud, map, live: true });
+  } catch (error) {
+    byId("prompt").placeholder = `Chat unavailable: ${error.message}`;
+  }
+}
+setupChat();
 
 function notice(message) {
   const box = byId("notice");
@@ -38,8 +62,8 @@ function render(snapshot) {
     : "No groups found in the current window; posts may be too dissimilar or batches too small.";
   byId("ranking").replaceChildren(...rows.slice(0, 6).map((row) => {
     const item = document.createElement("div");
-    const score = Object.assign(document.createElement("b"), { textContent: row.review_priority });
-    const name = Object.assign(document.createElement("span"), { textContent: row.label || `Group ${row.cluster_id}` });
+    const score = Object.assign(document.createElement("b"), { textContent: String((row.status === "ok" ? row.concern_level : row.status) ?? "unavailable").replaceAll("_", " ") });
+    const name = Object.assign(document.createElement("span"), { textContent: groupLabel(row.label, row.cluster_id) });
     const count = Object.assign(document.createElement("i"), { textContent: `${row.size} posts` });
     item.append(score, name, count);
     return item;

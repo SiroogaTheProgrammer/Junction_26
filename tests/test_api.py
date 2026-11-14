@@ -23,7 +23,7 @@ def test_read_only_dashboard_api_reads_fixture_artifacts(tmp_path, monkeypatch):
             response = client.get(page)
             assert response.status_code == 200
             assert response.headers["cache-control"] == "no-cache"
-        for asset in ("map.js", "group-card.js", "explore.js", "live.js", "menu.js", "styles.css"):
+        for asset in ("map.js", "group-card.js", "labels.js", "chat.js", "explore.js", "live.js", "menu.js", "styles.css"):
             response = client.get(f"/assets/{asset}")
             assert response.status_code == 200
             assert response.headers["cache-control"] == "no-cache"

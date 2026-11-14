@@ -5,13 +5,13 @@ Visual and interaction spec for the website. The data and endpoints come from se
 ## 1. Direction
 
 - **Feel:** super minimalist. Group balls fill the page. No banners, no toolbars, no boxed controls, no panels that are always open.
-- **Three pages:** a menu that explains the demo, **Explore** (map plus chat) and **Live test**.
+- **Pages:** a menu and a unified Live analysis view with streaming groups and chat. The existing Explore route remains available for the preloaded dataset.
 - **Unit of display:** one ball per group of similar posts. Ball area represents post count; colour represents group concern.
 
 **Copy rules (honesty is judged)**
 
 - Ball colour means **group concern**, not proven maliciousness or falsity. Uploaded material has an independent content category and concern.
-- Review priority is a triage score from 0 to 100, never a probability.
+- The internal review-priority score is a triage heuristic, never a probability; show concern levels prominently instead of calling that score concern.
 - Describe what was observed, not who is guilty. Never label an account.
 - No 2D/3D controls, projected points, dimensional copy, rotation or semantic distances. Ball positions are only a layout.
 - Propaganda-style persuasion can be identified from observable rhetoric without establishing truth, intent or coordination. Do not equate any political viewpoint with propaganda.
@@ -42,7 +42,8 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
 
 - One circular, focusable element per non-discarded group. Radius is proportional to the square root of post count, so area is proportional to count.
 - A deterministic non-overlapping pack uses final group sizes. Live balls grow in stable slots; positions have no semantic meaning.
-- Fill and outline use the group's concern colour. Each ball contains the count and, when large enough, a wrapped label. Full label, count, concern and review priority are available through the accessible name and tooltip.
+- New balls fade and scale in, and existing balls move smoothly when the layout changes. Existing elements are retained across snapshots, so updates do not replay their entrance; reduced-motion disables animations.
+- Fill and outline use the group's concern colour. Each ball contains the count and, when large enough, a wrapped label. Full label, count and concern are available through the accessible name and tooltip.
 - **Discarded groups** (assessed, below `MIN_REVIEW_PRIORITY`) and ungrouped noise are not drawn. Failed and pending groups remain visible.
 - **Selection:** click or keyboard-activate a ball. Its outline brightens and other balls dim. Click empty space or press Esc to clear.
 - **Corner text:** menu link, total posts, groups shown, groups dropped, and "size = posts · colour = concern".
@@ -51,7 +52,7 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
 ## 5. Explore (`/explore`)
 
 - Groups from the 10,000-post run are loaded on arrival.
-- **Group card:** shared by Explore and Live. Selecting a ball opens a rounded right-hand card with thin dividing lines between Overview, Framing, Spread and Example posts. Show count, priority, concern/confidence, summary, explanation, relevance/techniques, spread statistics and up to five sample posts. Fetch examples from the posts endpoint for groups without an analysis sample. Esc or the close control closes it.
+- **Group card:** shared by Explore and Live. Selecting a ball opens a rounded right-hand card with the full label and prominent concern, followed by divided Overview, Framing, cited evidence, Spread and Example posts. Show count, confidence, summary, explanation, relevance/techniques, spread statistics and up to five sample posts. Disclose mixed remainders and overlapping cross-batch repeated-text candidates. Fetch examples from the posts endpoint for groups without an analysis sample. Esc or the close control closes it.
 - Put behaviour signal lines before Overview when present. Spread has a
   value/p50/p90 table with above-p90 marks, baseline bucket/fallback disclosure,
   duplicate-author count, largest repeated group, top domain/hashtag and missing
@@ -62,13 +63,14 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
   re-analysis. Tooltips include the first signal line when one exists.
 - **Chat box:** one rounded input (22 px radius), nothing else. `＋` attaches files or articles (also drag and drop, or paste), Enter sends, Shift+Enter adds a line. Attached files show as small chips with a `×`.
 - **Replies** are rounded bubbles with separate Summary, Content assessment, Evidence, Spread review and Related group sections. An unavailable spread judge never erases a successful content assessment. Each unavailable assessment is explicitly labelled with the reason.
-- **Match:** show a closest-group link and highlight that ball. Explain that its review priority describes the existing group, not the submission, and that matching alone does not establish coordination. No similarity debug numbers, fake coordinates or connection lines. An unmatched item is labelled as such; hidden-group matches are disclosed.
+- **Match:** show a closest-group link and highlight that ball. Explain that its concern describes the existing group, not the submission, and that matching alone does not establish coordination. No similarity debug numbers, fake coordinates or connection lines. An unmatched item is labelled as such; hidden-group matches are disclosed.
 - **Layout:** from 1000 px wide the right-hand dock (420 px) holds the group details or chat thread above the input; the bubbles are centered in the remaining area. Selecting a group hides the thread without deleting it. Focusing the input, closing the card or pressing Esc restores the chat and clears the selection. On narrow screens the dock uses the available width at the bottom; details remain scrollable.
 - **States:** loading, no artifacts (with the command to run), no groups above threshold, chat unavailable (reason replaces placeholder and input is disabled), request errors (bubble shows the server's reason). Show a spinner and status text while a chat request is running.
 
 ## 6. Live test (`/live`)
 
-- The ball view starts a shared dataset-stream processor via `GET /api/live/processed`. New batches are embedded, grouped and assessed; groups from different batches are not merged.
+- The ball view starts a shared dataset-stream processor via `GET /api/live/processed`. New batches are embedded, grouped and assessed independently. Separate exact-text candidates spanning at least two batches and three accounts are assessed across the rolling window; they overlap batch groups and are not proof of coordination.
+- The right-hand dock contains the shared Super chat and live group details, with the thread and group details mutually exclusive. Chat matching still uses the preloaded dataset, not the live balls; disclose this in the composer and results, and never link a preloaded group ID to a live group.
 - The rolling window holds at most 50,000 eligible posts by default and evicts whole batches. At most 60 highest-priority groups are shown. Live clustering defaults to a minimum of 10 posts and 3 density samples; batch-local groups below the review threshold remain hidden.
 - **Bottom left:** the six highest-priority visible groups. **Bottom right:** processed and retained counts, configured batch size, last completed batch's eligible posts, grouped posts, source rows, elapsed time and posts per second, source rows scanned, group counts (including below-threshold groups) and analysis failures. Batch timing covers reading through checkpointing; model startup is excluded, and the last batch metrics reset on restart.
 - When no bubbles are visible, distinguish between no groups found and all groups being below the review threshold.

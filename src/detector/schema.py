@@ -59,11 +59,16 @@ class Analysis(BaseModel):
     confidence: float = Field(allow_inf_nan=False)
     explanation: str
 
-    @field_validator("label", "summary", "relevance_reason", "explanation")
+    @field_validator("label")
+    @classmethod
+    def clean_label(cls, value: str) -> str:
+        return value.strip().removeprefix("## ").strip()
+
+    @field_validator("summary", "relevance_reason", "explanation")
     @classmethod
     def word_limits(cls, value: str, info: ValidationInfo) -> str:
         assert info.field_name is not None
-        limit = {"label": 6, "summary": 40, "relevance_reason": 25, "explanation": 60}[info.field_name]
+        limit = {"summary": 40, "relevance_reason": 25, "explanation": 60}[info.field_name]
         words = value.split()
         if len(words) > limit:
             return " ".join(words[:limit]) + "..."

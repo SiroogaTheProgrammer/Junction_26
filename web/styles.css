@@ -107,6 +107,12 @@ button, textarea { font: inherit; color: inherit; }
   gap: 5px;
   overflow: hidden;
   font-size: var(--small-size);
+  animation: bubble-enter 500ms cubic-bezier(.2, .8, .2, 1) backwards;
+  transition: left 450ms ease, top 450ms ease, width 450ms ease, height 450ms ease, opacity 200ms ease, background 200ms ease;
+}
+@keyframes bubble-enter {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.6); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 .group-bubble:hover, .group-bubble.selected { background: color-mix(in srgb, var(--label-color) 38%, var(--bg)); }
 .group-bubble.selected, .group-bubble.matched { outline: 2px solid var(--text); outline-offset: 4px; }
@@ -139,7 +145,8 @@ button, textarea { font: inherit; color: inherit; }
   display: grid;
   gap: var(--gap);
 }
-.card h2 { font-size: var(--body-size); font-weight: 600; }
+.card h2 { font-size: var(--body-size); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.card .concern-summary { color: var(--text); font-size: var(--title-size); font-weight: 600; }
 .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .card-close { font-size: var(--title-size); line-height: 1; }
 .card p { color: var(--text-2); overflow-wrap: anywhere; }
@@ -229,8 +236,10 @@ button, textarea { font: inherit; color: inherit; }
 
 /* Live ranking */
 .live-summary { position: absolute; left: var(--edge); right: var(--edge); bottom: var(--edge); z-index: 2; display: flex; justify-content: space-between; align-items: end; gap: 20px; pointer-events: none; }
+.live-chat .live-summary { right: calc(var(--dock-width) + 2 * var(--edge)); }
+.chat-context { color: var(--text-3); font-size: var(--small-size); }
 .ranking { display: grid; gap: 4px; font-size: var(--small-size); color: var(--text-2); min-width: 0; max-width: 50%; }
-.ranking div { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: baseline; transition: opacity 200ms; }
+.ranking div { display: grid; grid-template-columns: 6em 1fr auto; gap: 10px; align-items: baseline; transition: opacity 200ms; }
 .ranking b { font-weight: 600; color: var(--text); text-align: right; }
 .ranking span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
 .ranking i { font-style: normal; color: var(--label-color); }
@@ -253,6 +262,13 @@ button, textarea { font: inherit; color: inherit; }
   .live-summary { flex-direction: column; align-items: start; gap: 16px; }
   .ranking { max-width: 100%; }
   .status { text-align: left; }
+  .live-chat .live-summary { right: var(--edge); bottom: 150px; }
+  .live-chat .ranking { display: none; }
+  .live-chat .status { font-size: 12px; }
+}
+@media (min-width: 701px) and (max-width: 999px) {
+  .live-chat .live-summary { right: var(--edge); bottom: 160px; }
+  .live-chat .ranking { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

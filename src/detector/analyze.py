@@ -258,7 +258,7 @@ async def _request_analysis(
                 "\n\nThe previous answer exceeded its output budget. Return compact final JSON only; "
                 "do not output reasoning or repeat the posts. Use short claim text, at most five claims, "
                 "only clearly evidenced techniques, and at most three evidence ids per item. "
-                "Keep label within 6 words, summary 40, relevance_reason 25 and explanation 60."
+                "Keep the label complete and concise, summary 40 words, relevance_reason 25 and explanation 60."
             )
             logger.warning(
                 "LLM output hit the token limit; recovery %d/2 with max_tokens=%d and compact JSON",

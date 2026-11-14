@@ -56,23 +56,32 @@ def test_evidence_filtering_removes_unknown_ids_and_empty_claims_and_techniques(
     assert {change["field"] for change in changes} == {"claims", "techniques", "templating"}
 
 
-def test_organic_stats_cap_concern_and_preserve_model_value():
+def test_organic_stats_do_not_downgrade_evidenced_content_concern():
     original = _analysis("high")
     parsed, changes = apply_rules(original, rule_context(organic_looking=True))
 
-    assert parsed.concern_level == "low"
-    assert changes[-1]["rule"] == "organic_stats"
+    assert parsed.concern_level == "high"
+    assert all(change["rule"] != "organic_stats" for change in changes)
     assert original.concern_level == "high"
 
 
-def test_lookalike_cap_applies_to_high_concern():
+def test_lookalike_does_not_override_evidenced_content_concern():
     parsed, changes = apply_rules(
         _analysis("medium", "looks like syndicated headlines"),
         rule_context(),
     )
 
-    assert parsed.concern_level == "low"
-    assert changes[-1]["rule"] == "lookalike"
+    assert parsed.concern_level == "medium"
+    assert all(change["rule"] != "lookalike" for change in changes)
+
+
+def test_unsupported_content_concern_is_not_presented_as_high():
+    analysis = _analysis()
+    analysis.claims = []
+    analysis.techniques = []
+    parsed, changes = apply_rules(analysis, rule_context())
+    assert parsed.concern_level == "insufficient_evidence"
+    assert any(change["rule"] == "missing_content_evidence" for change in changes)
 
 
 def test_empty_templating_evidence_resets_detected():
@@ -91,16 +100,16 @@ def test_rules_order_clamping_and_small_sample():
     parsed, changes = apply_rules(analysis, rule_context(valid_pids={"p1"}, organic_looking=True))
     assert parsed.relevance == 0
     assert parsed.confidence == 0.4
-    assert parsed.concern_level == "none"
+    assert parsed.concern_level == "high"
     assert [change["rule"] for change in changes] == [
-        "evidence", "evidence", "evidence", "clamp", "clamp", "organic_stats", "plain_topic", "small_sample",
+        "evidence", "evidence", "evidence", "clamp", "clamp", "small_sample",
     ]
     assert analysis.relevance == -1
     assert analysis.concern_level == "high"
 
 
 @pytest.mark.parametrize("anomaly,relevance,expected", [
-    (False, 0.19, "none"), (False, 0.2, "high"), (True, 0.1, "high"),
+    (False, 0.19, "high"), (False, 0.2, "high"), (True, 0.1, "high"),
 ])
 def test_plain_topic_cap_boundary(anomaly, relevance, expected):
     analysis = _analysis()
@@ -136,7 +145,7 @@ def test_anomaly_uses_strict_percentile_for_three_signals():
 
 
 @pytest.mark.parametrize("field,limit", [
-    ("label", 6), ("summary", 40), ("relevance_reason", 25), ("explanation", 60),
+    ("summary", 40), ("relevance_reason", 25), ("explanation", 60),
 ])
 def test_overlong_text_truncates(field, limit):
     data = _analysis().model_dump()
@@ -145,6 +154,12 @@ def test_overlong_text_truncates(field, limit):
     text = getattr(parsed, field)
     assert len(text.split()) == limit
     assert text.endswith("...")
+
+
+def test_full_label_is_retained_and_heading_marker_removed():
+    data = _analysis().model_dump()
+    data["label"] = "## Mixed personal posts with links and local political discussion"
+    assert Analysis.model_validate(data).label == "Mixed personal posts with links and local political discussion"
 
 
 def test_scores_reject_nonfinite_and_schema_advertises_bounds():

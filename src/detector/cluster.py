@@ -17,6 +17,34 @@ from detector.stats import run as run_stats
 logger = logging.getLogger(__name__)
 
 
+def _subdivide_topics(reduced: np.ndarray, labels: np.ndarray, settings: Settings) -> tuple[np.ndarray, dict[int, tuple[int, str]]]:
+    result = np.full(len(labels), -1, dtype=np.int64)
+    parents: dict[int, tuple[int, str]] = {}
+    next_id = 0
+    for parent in sorted(set(labels) - {-1}):
+        indexes = np.flatnonzero(labels == parent)
+        sublabels = np.full(len(indexes), -1, dtype=np.int64)
+        if len(indexes) >= settings.live_min_cluster_size * 2:
+            sublabels = HDBSCAN(
+                min_cluster_size=settings.live_min_cluster_size,
+                min_samples=min(settings.live_min_samples, len(indexes) - 1),
+                metric="euclidean", cluster_selection_method="leaf",
+            ).fit_predict(reduced[indexes])
+        parts = sorted(set(sublabels) - {-1})
+        if len(parts) < 2:
+            result[indexes] = next_id
+            parents[next_id] = (int(parent), "unsplit topic")
+            next_id += 1
+            continue
+        for label in [*parts, -1]:
+            positions = indexes[sublabels == label]
+            if len(positions):
+                result[positions] = next_id
+                parents[next_id] = (int(parent), "mixed remainder" if label == -1 else "focused subgroup")
+                next_id += 1
+    return result, parents
+
+
 def _read_vectors(client: QdrantClient, settings: Settings, expected: int) -> tuple[np.ndarray, np.ndarray]:
     points = []
     offset = None
@@ -124,6 +152,7 @@ def run(settings: Settings) -> None:
         cluster_selection_method="eom",
     )
     labels = estimator.fit_predict(reduced).astype(np.int64)
+    labels, parents = _subdivide_topics(reduced, labels, settings)
     hdbscan_seconds = time.monotonic() - step_started
     logger.info("HDBSCAN found %d non-noise clusters in %.1fs", len(set(labels) - {-1}), hdbscan_seconds)
     points, projection, model = project_with_model(post_ids, vectors, labels, settings.seed)
@@ -149,6 +178,8 @@ def run(settings: Settings) -> None:
         representative_positions = positions[np.argsort(-similarities, kind="stable")[:10]]
         record = {
             "cluster_id": int(cluster_id),
+            "parent_topic_id": parents[int(cluster_id)][0],
+            "subgroup_kind": parents[int(cluster_id)][1],
             "size": len(group),
             "representative_post_ids": [int(post_ids[position]) for position in representative_positions],
         }
@@ -172,6 +203,9 @@ def run(settings: Settings) -> None:
                     "umap_min_dist": settings.umap_min_dist,
                     "hdbscan_min_cluster_size": settings.hdbscan_min_cluster_size,
                     "hdbscan_min_samples": settings.hdbscan_min_samples,
+                    "cluster_selection_method": "eom with leaf subgroup refinement",
+                    "subgroup_min_cluster_size": settings.live_min_cluster_size,
+                    "subgroup_min_samples": settings.live_min_samples,
                     "seed": settings.seed,
                 },
                 "seconds": {

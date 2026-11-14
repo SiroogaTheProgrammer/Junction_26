@@ -86,11 +86,9 @@ def apply_rules(
     change("templating", templating, "evidence")
     for field in ("relevance", "confidence"):
         change(field, min(1.0, max(0.0, data[field])), "clamp")
-    if cluster["organic_looking"] and data["concern_level"] in {"medium", "high"}:
-        change("concern_level", "low", "organic_stats")
-    if data["legit_lookalike"] and data["concern_level"] in {"medium", "high"}:
-        change("concern_level", "low", "lookalike")
-    if data["relevance"] < 0.2 and not cluster["behavior_anomaly"] and data["concern_level"] != "none":
+    if data["concern_level"] in {"medium", "high"} and not (data["claims"] or data["techniques"]):
+        change("concern_level", "insufficient_evidence", "missing_content_evidence")
+    if data["relevance"] < 0.2 and not cluster["behavior_anomaly"] and not (data["claims"] or data["techniques"]) and data["concern_level"] not in {"none", "insufficient_evidence"}:
         change("concern_level", "none", "plain_topic")
     if len(valid) < cluster.get("min_sample_for_confidence", 8):
         change("confidence", min(0.4, data["confidence"]), "small_sample")

@@ -41,7 +41,7 @@ def test_pipeline_persists_records_report_and_uses_cache_without_endpoint(pipeli
     assert len(records) == 2
     for record in records:
         AnalysisRecord.model_validate(record)
-        assert record["prompt_version"] == "v5"
+        assert record["prompt_version"] == analyze.PROMPT_VERSION
         assert "display_tier" not in record
         assert record["concern_level_model"] == "high"
         assert record["relevance_model"] == 0.8

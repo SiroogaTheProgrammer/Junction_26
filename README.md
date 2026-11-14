@@ -56,7 +56,7 @@ embedding model loads.
 | `LIVE_DATASET` | Dataset streamed in the live test; defaults to the 15-language Bluesky dataset |
 | `LIVE_DATASET_REVISION` | Dataset revision to resolve on the first run (default `main`); its commit is pinned in the checkpoint |
 | `LIVE_BATCH_SIZE`, `LIVE_WINDOW_POSTS` | Live batch size (500) and maximum rolling window (50,000); batch size must not exceed the window |
-| `LIVE_MIN_CLUSTER_SIZE`, `LIVE_MIN_SAMPLES` | Live-only HDBSCAN group size (10) and density requirement (3); offline clustering uses separate `HDBSCAN_*` settings |
+| `LIVE_MIN_CLUSTER_SIZE`, `LIVE_MIN_SAMPLES` | HDBSCAN group size (10) and density requirement (3) for Live and offline topic refinement; offline initial topics use `HDBSCAN_*` settings |
 | `CHAT_JUDGE_TIMEOUT_S` | Time budget for the contextual judge, default 60 seconds; an existing `.env` value overrides it |
 | `CHAT_ASSESSMENT_MAX_TOKENS` | Maximum output-token budget for structured content and spread assessments (default 32,768; set lower if the endpoint requires it) |
 
@@ -68,12 +68,17 @@ is retained. It never switches judge on its own.
 
 ## Live processing and storage
 
-Opening `/live` starts one shared processor **per server process**; it continues
+Opening `/live` shows streaming groups and the Nemotron Super chat in one window,
+and starts one shared processor **per server process**; it continues
 when viewers disconnect, until the finite source is exhausted or the server
 stops. Reloading reconnects to that run. Use one Uvicorn worker, protect the site
 with authentication and rate limits, and expect LLM and CPU/GPU usage: opening
 the page can start a long processing job. On error, fix the configuration and
 restart the server; processing resumes after the last completed batch.
+Chat placement and its related group still use the preloaded offline artifacts,
+not the live rolling groups; the interface labels this distinction. Chat needs
+those artifacts and the Super endpoint even if the live stream is working.
+The existing `/explore` route remains available to inspect the preloaded groups.
 
 The small `live_progress.json` checkpoint and its lock file live in `DATA_DIR`,
 which must be persistent across container restarts. The checkpoint pins the
@@ -86,23 +91,34 @@ historical dataset: after exhaustion it stays complete and does not restart.
 The rolling window is not persisted, so its groups disappear on server restart,
 including when restarting after the source has been exhausted.
 
-Each batch is embedded and grouped independently using HDBSCAN on normalized
-embeddings. Live-specific clustering defaults allow smaller groups than the
-offline defaults; this may increase model calls and does not guarantee a group
-in every batch. The page distinguishes no groups found from groups below the
-review threshold and shows how many posts in the last batch were grouped.
-Lightning assesses each group with the same prompt and rules as the
-offline analyzer. Groups from different batches are **not merged**; events split
-across batches can be missed. Group scores and baselines are batch-local; burst
-timing is excluded because these batches do not establish a reliable dataset-wide
-time baseline. Duplicate identifiers are removed within each batch, not across
-the entire stream. The UI shows at most 60 highest-priority groups; it discloses
-failed analyses. It does not claim that detected patterns prove coordination.
+Each batch is embedded and clustered into smaller density-based leaves. Separately,
+the rolling window checks for exact repeated text across at least two batches and
+three distinct accounts, and sends those candidates for their own Lightning
+assessment. These candidates overlap batch groups: do not add their post counts
+together. Matching is case- and whitespace-normalized, but retains URLs and
+mentions; paraphrases and near-duplicates across batches are not matched. A
+repeated phrase can be benign, and neither it nor a model assessment proves
+coordination or intent. Candidates, samples and the index are lost on restart.
+
+The offline pipeline first creates broad topics and then attempts smaller
+density-based subgroups within each topic. An unsplit topic or mixed remainder
+is explicitly marked in its details. Existing offline artifacts must be reclustered
+and reanalyzed to use this: clustering changes assignments and invalidates old
+analyses, so use a separate data folder and Qdrant collection if the existing
+run must be preserved. Sampling and clustering can still miss a minority
+narrative, individual harmful posts or paraphrased campaigns; this is not
+validated detection. Political discussion by itself is not evidence of propaganda.
+
+Live baselines are batch-local; burst timing is excluded because these batches do
+not establish a reliable dataset-wide time baseline. Duplicate identifiers are
+removed within each batch, not across the entire stream. The UI shows at most 60
+groups, hides completed groups below the review threshold and discloses failed
+analyses. Smaller groups and repeatedly updated candidates can increase model calls.
 The existing `/api/live/stream` remains a legacy offline replay API; the new
 page uses `/api/live/processed`.
 
-The live processor retains only results and samples belonging to at most 50,000
-recent eligible posts, evicting whole old batches. It does not write live post
+The live processor retains a rolling index of up to 50,000 eligible posts and
+their in-memory results and samples, evicting whole old batches. It does not write live post
 vectors, samples or analyses to disk or alter the offline dataset/Qdrant.
 Dataset streaming and model libraries can still maintain their own Hugging Face
 metadata/model caches and logs: monitor those separately, and do not delete
@@ -186,12 +202,12 @@ and therefore `all`. It never changes group membership.
   10 groups fall back to the global baseline, explicitly disclosed.
 - Burstiness uses a configurable sliding window (default 10 minutes). When the
   **whole sample** spans less than six windows, timing is displayed but excluded
-  from anomaly flags, organic caps and review-priority points.
+  from anomaly flags and review-priority points.
 - The details card shows signal lines, value/p50/p90 comparisons, above-p90
   marks and examples. Missing image metadata is shown as unknown.
 - `stats_report.json` records flags, triggers, fallback buckets, reliability and
   runtime. New stats hashes mark saved model assessments stale until re-analysis;
-  stale groups remain visible. Analyzer prompt v5 and cache inputs include the
+  stale groups remain visible. Analyzer prompt v6 and cache inputs include the
   selected baseline, aggregate stats, reliability and signals.
 
 Configure `BURST_WINDOW_MIN`, `NEAR_DUP_JACCARD`, `MINHASH_PERM`,

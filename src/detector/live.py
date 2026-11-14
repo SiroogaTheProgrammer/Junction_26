@@ -20,6 +20,7 @@ from detector.embedding import choose_device, clean_for_embedding, encode, load_
 from detector.llm import create_client
 from detector.load import prepare_frame
 from detector.io import read_json, write_json
+from detector.patterns import RollingPatterns
 from detector.rules import behavior_anomaly, review_priority
 from detector.stats import baseline_for, build_baseline, cluster_stats, describe_signals
 
@@ -80,6 +81,7 @@ def _group(frame: pd.DataFrame, model: Any, settings: Settings, next_id: int) ->
         min_cluster_size=settings.live_min_cluster_size,
         min_samples=min(settings.live_min_samples, len(frame) - 1),
         metric="euclidean",
+        cluster_selection_method="leaf",
     ).fit_predict(vectors)
     groups = []
     for label in sorted(set(labels) - {-1}):
@@ -93,6 +95,32 @@ def _group(frame: pd.DataFrame, model: Any, settings: Settings, next_id: int) ->
             "representative_post_ids": frame.iloc[representatives]["post_id"].astype(int).tolist(),
         }, posts))
     return groups
+
+
+def _result(
+    group: dict, posts: pd.DataFrame, record: dict, baseline: dict, settings: Settings, scope: str,
+) -> dict[str, Any]:
+    parsed = record.get("parsed")
+    anomaly = behavior_anomaly(group, baseline, settings.anomaly_percentile)
+    priority = review_priority(parsed, group, baseline, settings.anomaly_percentile)
+    lookup = posts.set_index("post_id").to_dict(orient="index")
+    sample = [{
+        **item, "text": lookup[item["post_id"]]["text"],
+    } for item in record.get("sample", []) if item["post_id"] in lookup]
+    row = {
+        **group, "status": record["status"],
+        "label": parsed.get("label") if parsed else None,
+        "concern_level": parsed.get("concern_level") if parsed else None,
+        "review_priority": priority["score"], "behavior_anomaly": anomaly.flag,
+        "anomaly_triggered_by": anomaly.triggered_by,
+        "signals": describe_signals(group, baseline), "burstiness_reliable": False,
+        "burst_window_min": settings.burst_window_min,
+        "burstiness_note": "Burst timing is excluded because this window cannot establish a reliable dataset-wide time baseline.",
+        "bucket_baseline": baseline_for(group["size"], baseline),
+        "source_scope": scope,
+        "discarded": record["status"] == "ok" and priority["score"] < settings.min_review_priority,
+    }
+    return {"cluster": row, "analysis": {**record, "sample": sample}}
 
 
 class LiveProcessor:
@@ -112,13 +140,16 @@ class LiveProcessor:
         self.checkpoint_path = settings.data_path / "live_progress.json"
         self.resumed_from = 0
         self.last_batch: dict[str, int | float | None] | None = None
+        self.patterns = RollingPatterns()
+        self.pattern_ids: dict[str, int] = {}
+        self.pattern_results: dict[str, dict[str, Any]] = {}
 
     def start(self) -> None:
         if self.task is None:
             self.task = asyncio.create_task(self.run())
 
     def snapshot(self) -> dict[str, Any]:
-        groups = [group for _, batch in self.batches for group in batch]
+        groups = [group for _, batch in self.batches for group in batch] + list(self.pattern_results.values())
         visible = sorted(
             (group["cluster"] for group in groups if not group["cluster"]["discarded"]),
             key=lambda row: (-row["review_priority"], -row["size"], row["cluster_id"]),
@@ -135,7 +166,8 @@ class LiveProcessor:
         }
 
     def detail(self, group_id: int) -> dict[str, Any] | None:
-        return next((group for _, batch in self.batches for group in batch
+        return next((group for group in (
+                     [group for _, batch in self.batches for group in batch] + list(self.pattern_results.values()))
                      if group["cluster"]["cluster_id"] == group_id), None)
 
     def _record_batch(self, started: float, source_rows: int, posts: int, grouped_posts: int) -> None:
@@ -216,36 +248,43 @@ class LiveProcessor:
                         _analyze_one(semaphore, client, self.settings, group, posts, baseline, False, {})
                         for group, posts in groups
                     ))
-                    results = []
-                    for (group, posts), record in zip(groups, records, strict=True):
-                        parsed = record.get("parsed")
-                        anomaly = behavior_anomaly(group, baseline, self.settings.anomaly_percentile)
-                        priority = review_priority(parsed, group, baseline, self.settings.anomaly_percentile)
-                        lookup = posts.set_index("post_id").to_dict(orient="index")
-                        sample = [{
-                            **item, "text": lookup[item["post_id"]]["text"],
-                        } for item in record.get("sample", []) if item["post_id"] in lookup]
-                        row = {
-                            **group, "status": record["status"],
-                            "label": parsed.get("label") if parsed else None,
-                            "concern_level": parsed.get("concern_level") if parsed else None,
-                            "review_priority": priority["score"], "behavior_anomaly": anomaly.flag,
-                            "anomaly_triggered_by": anomaly.triggered_by,
-                            "signals": describe_signals(group, baseline), "burstiness_reliable": False,
-                            "burst_window_min": self.settings.burst_window_min,
-                            "burstiness_note": "Burst timing is excluded because this batch cannot establish a reliable dataset-wide time baseline.",
-                            "bucket_baseline": baseline_for(group["size"], baseline),
-                            "source_scope": "live batch",
-                            "discarded": record["status"] == "ok" and priority["score"] < self.settings.min_review_priority,
-                        }
-                        results.append({"cluster": row, "analysis": {**record, "sample": sample}})
+                    results = [
+                        _result(group, posts, record, baseline, self.settings, "live batch")
+                        for (group, posts), record in zip(groups, records, strict=True)
+                    ]
                     count = len(frame)
                     self.batches.append((count, results))
                     self.retained += count
                     self.processed += count
+                    changed = self.patterns.add(frame)
                     while self.retained > self.settings.live_window_posts:
                         removed, _ = self.batches.popleft()
                         self.retained -= removed
+                        changed.update(self.patterns.evict())
+                    candidates = []
+                    for key in sorted(changed):
+                        posts = self.patterns.candidate(key)
+                        if posts is None:
+                            self.pattern_results.pop(key, None)
+                            self.pattern_ids.pop(key, None)
+                            continue
+                        if key not in self.pattern_ids:
+                            self.pattern_ids[key] = self.group_id
+                            self.group_id += 1
+                        stats = await asyncio.to_thread(cluster_stats, posts, self.settings)
+                        group = {
+                            **stats, "stats": stats, "cluster_id": self.pattern_ids[key],
+                            "representative_post_ids": posts["post_id"].head(10).astype(int).tolist(),
+                        }
+                        candidates.append((key, group, posts))
+                    pattern_records = await asyncio.gather(*(
+                        _analyze_one(semaphore, client, self.settings, group, posts, baseline, False, {})
+                        for _, group, posts in candidates
+                    ))
+                    for (key, group, posts), record in zip(candidates, pattern_records, strict=True):
+                        self.pattern_results[key] = _result(
+                            group, posts, record, baseline, self.settings, "repeated text across live batches",
+                        )
                     checkpoint.source_state = dataset.state_dict()
                     checkpoint.scanned, checkpoint.processed, checkpoint.group_id = self.scanned, self.processed, self.group_id
                     write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))

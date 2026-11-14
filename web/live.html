@@ -3,17 +3,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Live test · Online narrative mapping</title>
+  <title>Live analysis · Online narrative mapping</title>
   <link rel="preload" href="/assets/fonts/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/assets/styles.css">
-  <script type="module" src="/assets/live.js?v=groups2"></script>
+  <script type="module" src="/assets/live.js?v=unified1"></script>
 </head>
 <body>
-  <main id="stage" class="stage">
+  <main id="stage" class="stage live-chat">
     <div class="labels" role="group" aria-label="Post groups growing as posts arrive. Ball area shows post count; colour shows concern."></div>
     <div class="corner left"><a class="plain" href="/">← menu</a><span id="info">live test</span></div>
     <div id="notice" class="notice" role="status"><p>connecting<span class="cursor" aria-hidden="true">_</span></p></div>
-    <aside id="card" class="card" aria-live="polite" hidden></aside>
+    <section class="chat" aria-label="Ask Nemotron 3.5 Super">
+      <aside id="card" class="card" aria-live="polite" hidden></aside>
+      <div id="thread" class="thread" aria-live="polite"></div>
+      <div id="chips" class="chips"></div>
+      <p class="chat-context">Chat matches the preloaded dataset, not the live groups.</p>
+      <form id="composer" class="composer">
+        <label class="attach" title="Attach files or articles"><span aria-hidden="true">＋</span>
+          <input id="files" type="file" multiple aria-label="Attach files or articles" disabled
+            accept=".txt,.md,.markdown,.csv,.tsv,.json,.log,.xml,.html,.htm,.pdf,image/png,image/jpeg,image/webp,image/gif">
+        </label>
+        <textarea id="prompt" rows="1" maxlength="8000" aria-label="Message to Nemotron 3.5 Super"
+          placeholder="Loading chat…" disabled></textarea>
+        <span class="hint" aria-hidden="true">↵</span>
+      </form>
+    </section>
     <div class="live-summary">
       <div id="ranking" class="ranking" aria-label="Most active clouds so far"></div>
       <div class="status" role="status">

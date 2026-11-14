@@ -1,3 +1,5 @@
+import { groupLabel } from "./labels.js";
+
 const words = (value) => String(value ?? "unavailable").replaceAll("_", " ");
 const percent = (value) => (value == null ? "unavailable" : `${Math.round(value * 100)}%`);
 const statPercent = (value) => value == null ? "unknown" : `${(value * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
@@ -18,7 +20,7 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}, api
     const dot = node("i", null, "dot");
     const tone = ["none", "low", "medium", "high"].includes(parsed?.concern_level) ? parsed.concern_level : "none";
     dot.style.setProperty("--label-color", `var(--concern-${tone})`);
-    title.append(dot, parsed?.label || `Group ${cluster.cluster_id}`);
+    title.append(dot, groupLabel(parsed?.label, cluster.cluster_id));
     const header = node("div", null, "card-header");
     const close = node("button", "×", "plain card-close");
     close.type = "button";
@@ -32,6 +34,16 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}, api
       card.append(element);
       return element;
     };
+    const concern = section("Concern");
+    concern.append(node("p", parsed ? `${words(parsed.concern_level)} concern` : `Assessment ${words(analysis.status)}`, "concern-summary"));
+    if (cluster.source_scope === "repeated text across live batches") {
+      concern.append(node("p", "Repeated text from multiple accounts across live batches; this overlaps other groups and does not prove coordination.", "small"));
+    }
+    if (cluster.subgroup_kind === "mixed remainder") {
+      concern.append(node("p", "Mixed remainder of a broader topic: these posts did not form a focused subgroup.", "small"));
+    } else if (cluster.subgroup_kind === "unsplit topic") {
+      concern.append(node("p", "Broad topic: no smaller subgroups were found.", "small"));
+    }
     if (cluster.signals?.length) {
       const signals = section("Behaviour signals");
       for (const signal of cluster.signals) signals.append(node("p", signal, "small"));
@@ -40,9 +52,7 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}, api
     const overview = section("Overview");
     if (cluster.analysis_stale) overview.append(node("p", "Saved model assessment predates the current statistics, prompt or sample size. Rerun the analyzer before treating its concern as current.", "small"));
     overview.append(node("p", [
-      `${cluster.size.toLocaleString()} posts in the ${cluster.source_scope === "live batch" ? "live batch" : "dataset"}`,
-      `review priority ${cluster.review_priority}/100`,
-      `concern ${words(parsed?.concern_level || analysis.status)}`,
+      `${cluster.size.toLocaleString()} posts in ${cluster.source_scope === "live batch" ? "the live batch" : cluster.source_scope === "repeated text across live batches" ? "the rolling window" : "the dataset"}`,
       `confidence ${percent(parsed?.confidence)}`,
     ].join(" · ")));
     if (parsed) {
@@ -51,6 +61,16 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}, api
       framing.append(node("p", `narrative relevance ${percent(parsed.relevance)} (${words(parsed.relevance_kind)}): ${parsed.relevance_reason}`, "small"));
       const techniques = parsed.techniques.map((item) => words(item.name));
       if (techniques.length) framing.append(node("p", `techniques: ${techniques.join(", ")}`, "small"));
+      const evidenceIds = new Set([
+        ...parsed.claims.flatMap((item) => item.evidence),
+        ...parsed.techniques.flatMap((item) => item.evidence),
+      ]);
+      const citedPosts = (analysis.sample || []).filter((post) => evidenceIds.has(post.pid) && post.text);
+      if (citedPosts.length) {
+        const evidence = section("Cited evidence");
+        for (const post of citedPosts) evidence.append(node("blockquote", `${post.pid}: ${post.text}`, "post"));
+        evidence.append(node("p", "These are sampled posts; the assessment may not represent every post in the group.", "small"));
+      }
     } else {
       overview.append(node("p", analysis.status === "failed" ? "The analysis of this group failed." : "This group has not been analysed."));
     }
@@ -96,7 +116,7 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}, api
     }
     table.append(body);
     spread.append(table);
-    if (cluster.burstiness_reliable === false) spread.append(node("p", cluster.burstiness_note || "Burst timing is unreliable: the dataset spans fewer than six burst windows. Excluded from flags and priority.", "small"));
+    if (cluster.burstiness_reliable === false) spread.append(node("p", cluster.burstiness_note || "Burst timing is unreliable: the dataset spans fewer than six burst windows. Excluded from spread flags.", "small"));
     if (stats.top_domain) spread.append(node("p", `Top domain: ${stats.top_domain}`, "small"));
     if (stats.top_hashtag) spread.append(node("p", `Top hashtag: #${stats.top_hashtag}`, "small"));
     spread.append(node("p", cluster.behavior_anomaly ? `Above baseline: ${cluster.anomaly_triggered_by.map(words).join(", ")}` : "No above-threshold behaviour flag; this does not establish that activity is organic.", "small"));

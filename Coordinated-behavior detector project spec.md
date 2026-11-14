@@ -127,7 +127,7 @@ All settings come from environment variables through `config.py`. Commit `.env.e
 | `MIN_REVIEW_PRIORITY` | `1` | Assessed clouds scoring below this are dropped from the map. `0` keeps everything |
 | `LIVE_POSTS_PER_SECOND` | `120` | Legacy offline replay API speed |
 | `LIVE_DATASET` / `LIVE_BATCH_SIZE` / `LIVE_WINDOW_POSTS` | 15-language dataset / `500` / `50000` | Stream source, grouping batch and bounded in-memory rolling window |
-| `LIVE_MIN_CLUSTER_SIZE` / `LIVE_MIN_SAMPLES` | `10` / `3` | Live-only HDBSCAN minimum group size and density requirement |
+| `LIVE_MIN_CLUSTER_SIZE` / `LIVE_MIN_SAMPLES` | `10` / `3` | HDBSCAN minimum group size and density requirement for Live and offline topic refinement |
 | `LIVE_DATASET_REVISION` | `main` | Requested revision resolved to a pinned commit in the live checkpoint |
 | `RELEVANCE_HIDE_BELOW` | `0.35` | Hide lower-relevance topics unless their spread is unusual |
 | `RELEVANCE_FULL_FROM` | `0.65` | Full-opacity relevance threshold; must be at least HIDE_BELOW |
@@ -183,7 +183,7 @@ Command: `python -m detector cluster`. Input: vectors in Qdrant and `data/posts.
 
 1. Read all vectors with Qdrant `scroll(with_vectors=True)` into a float32 array `X` of shape (N, 384), ordered by `post_id`. Assert N equals the number of posts.
 2. Reduce with UMAP: `umap.UMAP(n_neighbors=UMAP_N_NEIGHBORS, n_components=UMAP_N_COMPONENTS, min_dist=UMAP_MIN_DIST, metric="cosine", random_state=SEED)`. A fixed `random_state` makes UMAP single-threaded: slower but reproducible. If it is too slow, drop `random_state` and set `n_jobs=2`.
-3. Cluster with `sklearn.cluster.HDBSCAN(min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE, min_samples=HDBSCAN_MIN_SAMPLES, metric="euclidean", cluster_selection_method="eom")` on the reduced vectors. Label `-1` = noise.
+3. Cluster broad topics with HDBSCAN using `HDBSCAN_MIN_CLUSTER_SIZE`, `HDBSCAN_MIN_SAMPLES` and `eom`. Refine each eligible topic using leaf HDBSCAN and `LIVE_MIN_CLUSTER_SIZE`/`LIVE_MIN_SAMPLES`. Preserve an unsplit topic or a mixed remainder when needed; `parent_topic_id` and `subgroup_kind` describe these results. Label `-1` = original topic-level noise.
 4. Write `assignments.parquet` (`post_id`, `cluster_id`). Invalidate analyses if cloud membership changed.
 5. For each non-noise cluster compute the centroid (mean of its rows of `X`, re-normalised), the `representative_post_ids` (the 10 posts with the highest cosine similarity to the centroid) and the behavior stats below.
 6. Compute `baseline` over all non-noise clusters, then `organic_looking` per cluster.
@@ -241,14 +241,14 @@ Token-limit finishes are failures, even if partial content is present. For missi
 or truncated answers, `raw_response` preserves the full completion JSON (including
 finish reason, usage and any reasoning) for debugging.
 
-**System prompt:** version `v5` in `prompts.py`, with readable topic labels, the complete relevance rubric plus near-duplicate/multi-account context, size-bucket percentiles and timing reliability. The version and stats hashes invalidate older cached assessments. Political symmetry, dominant-cluster scoring and untrusted-data handling remain.
+**System prompt:** version `v6` in `prompts.py`, with complete topic labels, subgroup evidence, political symmetry, near-duplicate/multi-account context, size-bucket percentiles and timing reliability. The version and stats hashes invalidate older cached assessments. Mixed topics, single extreme posts and untrusted-data handling remain explicit caveats.
 
 The user template gives each statistic beside its median/p90, followed by escaped posts. The JSON schema is supplied through structured output.
 
 **Output schema (pydantic model `Analysis` in `schema.py`)**
 
 ```
-label: str                 # max 6 words, neutral name of the idea
+label: str                 # concise, complete neutral name of the idea
 summary: str               # max 40 words, neutral
 relevance_kind: enum        # narrative, issue_discussion, news_relay, plain_topic,
                             # personal_chatter, commercial_or_spam, unclear
@@ -270,13 +270,12 @@ Technique names: `fear_appeal`, `scapegoating`, `false_urgency`, `loaded_languag
 
 1. Drop unknown evidence ids and empty claims/techniques; reset templating if no evidence remains.
 2. Clamp relevance/confidence to 0..1. Nonfinite scores are invalid.
-3. Cap medium/high concern to low for organic statistics (`organic_stats`).
-4. Cap medium/high concern to low for legitimate lookalikes (`lookalike`).
-5. Cap concern to none if relevance is below 0.2 and spread is not anomalous (`plain_topic`).
-6. Cap confidence at 0.4 below `MIN_SAMPLE_FOR_CONFIDENCE`.
-7. Preserve `concern_level_model` and `relevance_model`; log every enforced change in `rule_log`.
+3. Mark medium/high concern as insufficient evidence if no cited claims or techniques survive validation (`missing_content_evidence`). Organic spread or a lookalike does not automatically erase evidenced content concern.
+4. Cap concern to none for low-relevance, non-anomalous material without cited claims or techniques (`plain_topic`).
+5. Cap confidence at 0.4 below `MIN_SAMPLE_FOR_CONFIDENCE`.
+6. Preserve `concern_level_model` and `relevance_model`; log every enforced change in `rule_log`.
 
-Overlong label, summary, relevance reason and explanation are truncated with an ellipsis, not rejected.
+Overlong summary, relevance reason and explanation are truncated with an ellipsis; full labels are retained.
 
 **Each line of `analyses.jsonl`:** `cluster_id`, `input_hash`, `prompt_version`, `status` (`ok` or `failed`), `sample` (list of `{pid, post_id}`), `behavior_anomaly` (`flag`, `triggered_by`), `system_prompt`, `user_prompt`, `raw_response`, `parsed` (after the rules), `concern_level_model`, `relevance_model`, `capped_by`, `rule_log`, `attempts`, `latency_s`, `model`, `created_at`. Display tier is not stored.
 
@@ -296,7 +295,7 @@ Command: `python -m detector serve` (uvicorn, port 8000; `--data-dir` picks the 
 | `GET /api/clusters/{id}/posts?offset=0&limit=50` | Paginated posts of the cluster |
 | `GET /api/map` | `columns: [post_id, cluster_id, x, y, z]`, compact `points` arrays and projection metadata; HTTP 503 with a rebuild instruction when the projection is missing |
 | `GET /api/live/stream` | Server-sent events: `start`, then batches `{points, sent, total, clock}` every 250 ms in post-time order, then `done` |
-| `GET /api/live/processed`, `/api/live/clusters/{id}` | Shared streamed-dataset processing snapshots and rolling group details. Groups are batch-local; memory is bounded by the rolling window. A checkpoint in `DATA_DIR` persists the source cursor and pinned dataset revision; the rolling window itself is not restored after restart. |
+| `GET /api/live/processed`, `/api/live/clusters/{id}` | Shared streamed-dataset processing snapshots and rolling group details. Semantic groups are batch-local; separate exact-text candidates span batches and overlap them. Memory is bounded by the rolling window. A checkpoint in `DATA_DIR` persists the source cursor and pinned dataset revision; the rolling window itself is not restored after restart. |
 | `POST /api/chat` | JSON `{message, attachments: [{name, type, data(base64)}], history}`. Returns `reply`, `placed_text`, `placed_from`, `placement` (`coordinates`, `nearest_cloud`, `neighbors`), independent `content_assessment` and `content_review` (`model`, `status`, `reason`), contextual `verdict` and `judge` (`model`, `status`, `reason`, `rule_log`), `attachments`, `models` |
 
 **Review priority** (API-time, 0 to 100): a triage heuristic, not a probability or validated detection quality. Final concern contributes 0/15/39/60 points for none/low/medium/high; insufficient evidence adds zero. For each of duplicate ratio, top author share and burstiness, normalized excess is `max(0, value - baseline) / (1 - baseline)` at the chosen anomaly percentile (zero when the baseline is one). Spread adds `20 * (max(excesses) + mean(excesses))`, up to 40. The API exposes `review_priority` and the full `review_score` breakdown; failed or unanalysed clouds have an explicit `spread_only` partial status. Confidence and relevance stay separate.
