@@ -145,15 +145,21 @@ def _load_chat(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from detector.live import LiveProcessor
+
     app.state.chat_slots = asyncio.Semaphore(settings.chat_concurrency)
     app.state.chat_times = deque()
+    app.state.live = LiveProcessor(settings)
     try:
         app.state.dashboard = _load_dashboard_data()
     except FileNotFoundError as exc:
         app.state.dashboard = None
         app.state.artifact_error = str(exc)
         logger.warning("Dashboard artifacts are not ready: %s", exc)
-    yield
+    try:
+        yield
+    finally:
+        await app.state.live.close()
 
 
 app = FastAPI(
@@ -341,6 +347,43 @@ def map_points(request: Request) -> dict[str, Any]:
 
 
 LIVE_TICK_S = 0.25
+
+
+@app.get("/api/live/processed")
+async def live_processed(request: Request) -> StreamingResponse:
+    processor = request.app.state.live
+    processor.start()
+
+    async def events():
+        revision = -1
+        while not await request.is_disconnected():
+            snapshot = processor.snapshot()
+            if snapshot["revision"] != revision:
+                revision = snapshot["revision"]
+                yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+            if snapshot["status"] in {"complete", "error"}:
+                break
+            await asyncio.sleep(1)
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+    })
+
+
+@app.get("/api/live/clusters/{cluster_id}")
+def live_cluster(cluster_id: int, request: Request) -> dict[str, Any]:
+    detail = request.app.state.live.detail(cluster_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Live group is no longer in the rolling window")
+    return detail
+
+
+@app.get("/api/live/clusters/{cluster_id}/posts")
+def live_cluster_posts(cluster_id: int, request: Request) -> dict[str, Any]:
+    detail = request.app.state.live.detail(cluster_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Live group is no longer in the rolling window")
+    return {"posts": detail["analysis"].get("sample", [])[:5]}
 
 
 @app.get("/api/live/stream")

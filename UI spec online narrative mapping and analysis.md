@@ -15,7 +15,7 @@ Visual and interaction spec for the website. The data and endpoints come from se
 - Describe what was observed, not who is guilty. Never label an account.
 - No 2D/3D controls, projected points, dimensional copy, rotation or semantic distances. Ball positions are only a layout.
 - Propaganda-style persuasion can be identified from observable rhetoric without establishing truth, intent or coordination. Do not equate any political viewpoint with propaganda.
-- The live test is a replay of stored posts, and the page says so.
+- The live test streams a historical dataset, not real-time social traffic, and the page says so.
 
 ## 2. Design tokens
 
@@ -32,7 +32,7 @@ All colours and sizes are CSS variables in `:root` in `styles.css`. No other col
 | `--concern-none` / `-low` / `-medium` / `-high` | `#6c7078` / `#9a9468` / `#d2a044` / `#d65a4c` | Concern colours |
 | `--radius` / `--radius-input` | `18px` / `22px` | Cards and bubbles / the chat box |
 
-**Typography:** JetBrains Mono, self-hosted woff2 in `web/fonts/` (400 and 600). Title 22 px, body 15 px, small 13 px. No CDN assets, so the demo works offline.
+**Typography:** JetBrains Mono, self-hosted woff2 in `web/fonts/` (400 and 600). Title 23 px, body 16 px, small 14 px. No CDN assets.
 
 ## 3. Menu (`/`)
 
@@ -61,19 +61,17 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
   warning in Overview and the page count. Keep stale groups visible until
   re-analysis. Tooltips include the first signal line when one exists.
 - **Chat box:** one rounded input (22 px radius), nothing else. `＋` attaches files or articles (also drag and drop, or paste), Enter sends, Shift+Enter adds a line. Attached files show as small chips with a `×`.
-- **Replies** are rounded bubbles. Lead with the original content category (including propaganda-style persuasion where supported), content concern/confidence, techniques and quoted or visual evidence. A thin divider separates contextual spread concern. An unavailable spread judge never erases a successful content assessment. Each unavailable assessment is explicitly labelled with the reason.
+- **Replies** are rounded bubbles with separate Summary, Content assessment, Evidence, Spread review and Related group sections. An unavailable spread judge never erases a successful content assessment. Each unavailable assessment is explicitly labelled with the reason.
 - **Match:** show a closest-group link and highlight that ball. Explain that its review priority describes the existing group, not the submission, and that matching alone does not establish coordination. No similarity debug numbers, fake coordinates or connection lines. An unmatched item is labelled as such; hidden-group matches are disclosed.
 - **Layout:** from 1000 px wide the right-hand dock (420 px) holds the group details or chat thread above the input; the bubbles are centered in the remaining area. Selecting a group hides the thread without deleting it. Focusing the input, closing the card or pressing Esc restores the chat and clears the selection. On narrow screens the dock uses the available width at the bottom; details remain scrollable.
 - **States:** loading, no artifacts (with the command to run), no groups above threshold, chat unavailable (reason replaces placeholder and input is disabled), request errors (bubble shows the server's reason). Show a spinner and status text while a chat request is running.
 
 ## 6. Live test (`/live`)
 
-- The same ball view, empty at first. `GET /api/live/stream` delivers batches (120 posts per second by default).
-- A ball appears at its first arriving post and grows in area with count.
-- **Bottom left:** the six clouds that matter most so far, re-sorted as posts arrive: review priority, label, posts collected.
-- **Bottom right:** posts arrived out of the total, the replay speed and the timestamp of the latest post. When the replay ends: "replay complete" and a text link to replay.
-- **Corner text** states that this is simulated traffic replayed through the server and that cloud membership comes from the offline run.
-- The card shows the full offline group's statistics and examples, not a new inference about replay arrivals. If the stream breaks, the page says so and does not silently restart.
+- The ball view starts a shared dataset-stream processor via `GET /api/live/processed`. New batches are embedded, grouped and assessed; groups from different batches are not merged.
+- The rolling window holds at most 25,000 eligible posts by default and evicts whole batches. At most 60 highest-priority groups are shown.
+- **Bottom left:** the six highest-priority visible groups. **Bottom right:** processed and retained counts, source rows scanned, group count and analysis failures.
+- Corner text states that this is historical simulated traffic, not a live feed. The card displays live batch statistics and examples. Errors are explicit; restart the server to retry after fixing the cause.
 
 ## 7. Accessibility and motion
 

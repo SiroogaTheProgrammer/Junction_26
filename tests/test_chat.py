@@ -280,6 +280,33 @@ def test_missing_spread_judge_preserves_content_assessment(judge_client, reason)
     assert "unavailable" in facts
 
 
+def test_content_and_spread_assessments_run_concurrently(monkeypatch):
+    from detector import chat
+
+    async def verify():
+        content_started, judge_started = asyncio.Event(), asyncio.Event()
+
+        async def content(*_args):
+            content_started.set()
+            await asyncio.wait_for(judge_started.wait(), 1)
+            return ContentAssessment.model_validate(assessment())
+
+        async def spread(*_args):
+            judge_started.set()
+            await asyncio.wait_for(content_started.wait(), 1)
+            return Verdict.model_validate(verdict()), "{}"
+
+        monkeypatch.setattr(chat, "assess_content", content)
+        monkeypatch.setattr(chat, "judge_item", spread)
+        placer, vectors, _ = make_placer(encoder=lambda text: vectors[12])
+        result = await run_chat(**chat_kwargs(
+            placer, super_client=client_returning("Done."), judge_client=client_returning(),
+        ))
+        assert result["content_review"]["status"] == result["judge"]["status"] == "ok"
+
+    asyncio.run(verify())
+
+
 def test_judge_gets_one_corrective_retry():
     placer, vectors, _ = make_placer(encoder=lambda text: vectors[12])
     judge = client_returning('{"label": "incomplete"}', json.dumps(verdict(concern_level="low")))

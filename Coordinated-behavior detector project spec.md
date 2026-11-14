@@ -119,12 +119,13 @@ All settings come from environment variables through `config.py`. Commit `.env.e
 | `SUPER_LLM_MODEL` | `nemotron-3.5-super-vl` | Model name the chat endpoint serves |
 | `SUPER_LLM_MAX_TOKENS` / `SUPER_LLM_TIMEOUT_S` | `4096` / `120` | Output cap and per-request timeout for the chat model |
 | `CHAT_JUDGE` | `lightning` | Which model judges a submitted item: `lightning` (the `LLM_*` endpoint) or `super`. No automatic switch |
-| `CHAT_JUDGE_TIMEOUT_S` | `20` | How long a chat waits for the judge before answering without a verdict |
+| `CHAT_JUDGE_TIMEOUT_S` | `60` | How long a chat waits for the judge before answering without a verdict |
 | `CHAT_NEIGHBORS` | `25` | Nearest stored posts used to place an item and pick its nearest cloud |
 | `CHAT_MAX_ATTACHMENTS` / `CHAT_MAX_ATTACHMENT_MB` | `4` / `4` | Upload limits per message |
 | `CHAT_MAX_PER_MINUTE` / `CHAT_CONCURRENCY` | `20` / `2` | Cost guards for the public demo: total chat requests per minute and in parallel |
 | `MIN_REVIEW_PRIORITY` | `1` | Assessed clouds scoring below this are dropped from the map. `0` keeps everything |
-| `LIVE_POSTS_PER_SECOND` | `120` | Replay speed of the live test |
+| `LIVE_POSTS_PER_SECOND` | `120` | Legacy offline replay API speed |
+| `LIVE_DATASET` / `LIVE_BATCH_SIZE` / `LIVE_WINDOW_POSTS` | 15-language dataset / `500` / `25000` | Stream source, grouping batch and bounded in-memory rolling window |
 | `RELEVANCE_HIDE_BELOW` | `0.35` | Hide lower-relevance topics unless their spread is unusual |
 | `RELEVANCE_FULL_FROM` | `0.65` | Full-opacity relevance threshold; must be at least HIDE_BELOW |
 | `ANOMALY_PERCENTILE` | `90` | Behavior baseline percentile: 50, 75 or 90 |
@@ -292,6 +293,7 @@ Command: `python -m detector serve` (uvicorn, port 8000; `--data-dir` picks the 
 | `GET /api/clusters/{id}/posts?offset=0&limit=50` | Paginated posts of the cluster |
 | `GET /api/map` | `columns: [post_id, cluster_id, x, y, z]`, compact `points` arrays and projection metadata; HTTP 503 with a rebuild instruction when the projection is missing |
 | `GET /api/live/stream` | Server-sent events: `start`, then batches `{points, sent, total, clock}` every 250 ms in post-time order, then `done` |
+| `GET /api/live/processed`, `/api/live/clusters/{id}` | Shared streamed-dataset processing snapshots and rolling group details. Groups are batch-local; memory is bounded by the rolling window. |
 | `POST /api/chat` | JSON `{message, attachments: [{name, type, data(base64)}], history}`. Returns `reply`, `placed_text`, `placed_from`, `placement` (`coordinates`, `nearest_cloud`, `neighbors`), independent `content_assessment` and `content_review` (`model`, `status`, `reason`), contextual `verdict` and `judge` (`model`, `status`, `reason`, `rule_log`), `attachments`, `models` |
 
 **Review priority** (API-time, 0 to 100): a triage heuristic, not a probability or validated detection quality. Final concern contributes 0/15/39/60 points for none/low/medium/high; insufficient evidence adds zero. For each of duplicate ratio, top author share and burstiness, normalized excess is `max(0, value - baseline) / (1 - baseline)` at the chosen anomaly percentile (zero when the baseline is one). Spread adds `20 * (max(excesses) + mean(excesses))`, up to 40. The API exposes `review_priority` and the full `review_score` breakdown; failed or unanalysed clouds have an explicit `spread_only` partial status. Confidence and relevance stay separate.
@@ -310,7 +312,7 @@ Command: `python -m detector serve` (uvicorn, port 8000; `--data-dir` picks the 
 
 Failure handling: an unavailable content assessment has `content_assessment: null` and an explicit reason in `content_review`; it is never fabricated. If the spread judge exceeds `CHAT_JUDGE_TIMEOUT_S` or returns no valid verdict, `verdict` is null with the reason, but a successful content assessment stands. There is no silent judge switch. A failed Super digest or final answer returns HTTP 502 with a reason. Bad input is HTTP 400, an oversized body 413, rate/concurrency guard 429, and missing placement artifacts or credentials 503 with the fix. Material, digest and posts are untrusted in every prompt; models have no tools.
 
-**Website** (`web/`, see the UI spec): menu, **Explore** with group balls from the preloaded 10,000-post run and rounded Super chat, and **Live test** with growing group balls and a re-sorted ranking. Ball area is proportional to post count; colour shows group concern. Positions are a deterministic non-overlapping layout, never semantic coordinates. No 2D/3D controls or projected post dots are shown. Both modes have divided group cards with example posts. The live test honestly discloses replay of offline membership. PCA artifacts remain supported by the backend but are not used to position balls; Explore renders counts even without a projection.
+**Website** (`web/`, see the UI spec): menu, **Explore** with group balls from the preloaded 10,000-post run and rounded Super chat, and **Live test** with new batch-local groups from a streamed historical dataset and a rolling ranking. Ball area is proportional to post count; colour shows group concern. Positions are a deterministic non-overlapping layout, never semantic coordinates. Both modes have divided group cards with example posts. PCA artifacts remain supported by the backend but are not used to position balls; Explore renders counts even without a projection.
 
 ## 10. Run locally and deploy
 

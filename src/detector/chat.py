@@ -422,26 +422,32 @@ async def run_chat(
         for neighbor in placement["neighbors"][:JUDGE_NEIGHBORS]
     ]
 
-    content_assessment = None
-    content_review = {"model": settings.super_llm_model, "status": "ok", "reason": None}
-    try:
-        content_assessment = await assess_content(super_client, settings, message, material)
-    except JudgeError as exc:
-        logger.warning("Content assessment unavailable: %s", exc)
-        content_review.update(status="unavailable", reason=str(exc))
+    async def content_result():
+        try:
+            return await assess_content(super_client, settings, message, material), {
+                "model": settings.super_llm_model, "status": "ok", "reason": None,
+            }
+        except JudgeError as exc:
+            logger.warning("Content assessment unavailable: %s", exc)
+            return None, {"model": settings.super_llm_model, "status": "unavailable", "reason": str(exc)}
 
-    verdict, rule_log, judge = None, [], {"model": judge_model, "status": "ok", "reason": None}
-    try:
-        if judge_client is None:
-            raise JudgeError(judge_missing or "the judge model is not configured")
-        raw_verdict, _ = await judge_item(
-            judge_client, judge_model, settings.chat_judge_timeout_s,
-            _judge_prompt(placed_text, nearest, neighbors, len(placement["neighbors"])),
-        )
-        verdict, rule_log = apply_verdict_rules(raw_verdict, nearest)
-    except JudgeError as exc:
-        logger.warning("Judge unavailable: %s", exc)
-        judge.update(status="unavailable", reason=str(exc))
+    async def spread_result():
+        try:
+            if judge_client is None:
+                raise JudgeError(judge_missing or "the judge model is not configured")
+            raw_verdict, _ = await judge_item(
+                judge_client, judge_model, settings.chat_judge_timeout_s,
+                _judge_prompt(placed_text, nearest, neighbors, len(placement["neighbors"])),
+            )
+            verdict, rule_log = apply_verdict_rules(raw_verdict, nearest)
+            return verdict, {"model": judge_model, "status": "ok", "reason": None, "rule_log": rule_log}
+        except JudgeError as exc:
+            logger.warning("Judge unavailable: %s", exc)
+            return None, {"model": judge_model, "status": "unavailable", "reason": str(exc), "rule_log": []}
+
+    (content_assessment, content_review), (verdict, judge) = await asyncio.gather(
+        content_result(), spread_result(),
+    )
 
     facts = {
         "content_assessment": content_assessment.model_dump() if content_assessment else None,
@@ -484,7 +490,7 @@ async def run_chat(
         "verdict": verdict.model_dump() if verdict else None,
         "content_assessment": content_assessment.model_dump() if content_assessment else None,
         "content_review": content_review,
-        "judge": {**judge, "rule_log": rule_log},
+        "judge": judge,
         "attachments": material.summary,
         "models": {"chat": settings.super_llm_model, "judge": judge_model},
     }

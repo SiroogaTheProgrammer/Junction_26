@@ -25,9 +25,9 @@
   --concern-medium: #d2a044;
   --concern-high: #d65a4c;
   --font: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --body-size: 15px;
-  --small-size: 13px;
-  --title-size: 22px;
+  --body-size: 16px;
+  --small-size: 14px;
+  --title-size: 23px;
   --radius: 18px;
   --radius-input: 22px;
   --edge: 20px;
@@ -197,6 +197,11 @@ button, textarea { font: inherit; color: inherit; }
 .spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--border); border-top-color: var(--text); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .msg .verdict { padding-top: 6px; border-top: var(--hairline) solid var(--border); display: grid; gap: 4px; font-size: var(--small-size); color: var(--text-2); }
+.reply-summary, .verdict-section { display: grid; gap: 6px; }
+.reply-summary h3, .verdict-section h3 { font-size: var(--small-size); color: var(--text); font-weight: 600; }
+.verdict-section { border-top: var(--hairline) solid var(--border); padding-top: 10px; margin-top: 6px; }
+.verdict-section:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.reply-summary p, .verdict-section p { line-height: 1.65; }
 .msg .verdict strong { color: var(--text); font-weight: 600; }
 .msg .verdict .plain { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .content-evidence { border-left: var(--hairline) solid var(--border); padding-left: 8px; }

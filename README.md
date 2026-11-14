@@ -22,8 +22,9 @@ The website has three pages:
   article: Super assesses the original content, and a separate judge reviews its
   relationship to the closest group. Select a ball for divided detail sections
   and up to five example posts.
-- **`/live`** replays the same posts as incoming traffic through the server.
-  Group balls grow in arrival order and the most important groups re-sort.
+- **`/live`** streams the full configured dataset in batches, embeds the posts,
+  forms new groups and calls the configured LLM to assess them. This simulates
+  incoming traffic; the dataset is a finite historical snapshot, not a live feed.
 
 Ball **area represents post count**; **colour represents group concern**. Ball
 positions are only a non-overlapping layout, not semantic distance. Groups that
@@ -52,13 +53,42 @@ embedding model loads.
 | `SAMPLE_SIZE` | Posts sampled per group for analysis (default 50, or all posts in a smaller group); an explicit `.env` value overrides the default |
 | `HF_DATASET` | Defaults to `itsmebatuhan/bluesky-10m-posts-15-languages`; `--dataset` overrides an older `.env` value |
 | `MIN_REVIEW_PRIORITY` | Current completed groups below this score are dropped (default 1; stale assessments remain visible) |
-| `LIVE_POSTS_PER_SECOND` | Replay speed of the live test (default 120) |
+| `LIVE_DATASET` | Dataset streamed in the live test; defaults to the 15-language Bluesky dataset |
+| `LIVE_BATCH_SIZE`, `LIVE_WINDOW_POSTS` | Live batch size (500) and maximum rolling window (25,000); batch size must not exceed the window |
+| `CHAT_JUDGE_TIMEOUT_S` | Time budget for the contextual judge, default 60 seconds; an existing `.env` value overrides it |
 
 `.env.example` lists every setting with its default. Keep a warm Verda replica for
 both models in production: if the Lightning judge does not answer within
-`CHAT_JUDGE_TIMEOUT_S` (20 s), the chat still places the item and answers, but says
+`CHAT_JUDGE_TIMEOUT_S` (60 s by default), the chat still places the item and answers, but says
 that the **spread review** is unavailable. The independent Super content assessment
 is retained. It never switches judge on its own.
+
+## Live processing and storage
+
+Opening `/live` starts one shared processor **per server process**; it continues
+when viewers disconnect, until the finite source is exhausted or the server
+stops. Reloading reconnects to that run. Use one Uvicorn worker, protect the site
+with authentication and rate limits, and expect LLM and CPU/GPU usage: opening
+the page can start a long processing job. On error, fix the configuration and
+restart the server; restart also resets the in-memory window and dataset cursor.
+
+Each batch is embedded and grouped independently using HDBSCAN on normalized
+embeddings. Lightning assesses each group with the same prompt and rules as the
+offline analyzer. Groups from different batches are **not merged**; events split
+across batches can be missed. Group scores and baselines are batch-local; burst
+timing is excluded because these batches do not establish a reliable dataset-wide
+time baseline. Duplicate identifiers are removed within each batch, not across
+the entire stream. The UI shows at most 60 highest-priority groups; it discloses
+failed analyses. It does not claim that detected patterns prove coordination.
+The existing `/api/live/stream` remains a legacy offline replay API; the new
+page uses `/api/live/processed`.
+
+The live processor retains only results and samples belonging to at most 25,000
+recent eligible posts, evicting whole old batches. It does not write live post
+vectors, samples or analyses to disk or alter the offline dataset/Qdrant.
+Dataset streaming and model libraries can still maintain their own Hugging Face
+metadata/model caches and logs: monitor those separately, and do not delete
+existing files without checking what uses them. Restart loses the live window.
 
 ## Run the whole pipeline
 

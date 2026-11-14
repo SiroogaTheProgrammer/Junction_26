@@ -75,25 +75,37 @@ function renderVerdict(result) {
   const box = node("div", null, "verdict");
   const { verdict, judge, placement } = result;
   const content = result.content_assessment;
+  const section = (title) => {
+    const item = node("section", null, "verdict-section");
+    item.append(node("h3", title));
+    box.append(item);
+    return item;
+  };
+  const contentSection = section("Content assessment");
   if (content) {
     const head = node("p");
     const dot = node("i", null, "dot");
     dot.style.setProperty("--label-color", toneColor(content.concern_level));
     const category = content.category === "propaganda" ? "propaganda-style persuasion" : words(content.category);
     head.append(dot, node("strong", category), ` · content concern ${words(content.concern_level)} · confidence ${percent(content.confidence)}`);
-    box.append(head, node("p", content.explanation));
-    if (content.techniques.length) box.append(node("p", content.techniques.map(words).join(" · ")));
-    for (const evidence of content.evidence) box.append(node("blockquote", evidence, "content-evidence"));
+    contentSection.append(head, node("p", content.explanation));
+    if (content.techniques.length) contentSection.append(node("p", `Techniques: ${content.techniques.map(words).join(" · ")}`));
+    if (content.evidence.length) {
+      const evidence = section("Evidence");
+      for (const item of content.evidence) evidence.append(node("blockquote", item, "content-evidence"));
+    }
   } else {
-    box.append(node("p", `Content assessment unavailable: ${result.content_review?.reason || "no result returned"}.`));
+    contentSection.append(node("p", `Unavailable: ${result.content_review?.reason || "no result returned"}.`));
   }
+  const spread = section("Spread review");
   if (verdict) {
-    box.append(node("p", `Separate spread review: ${words(verdict.concern_level)}. One item does not establish coordination.`, "spread-review"));
+    spread.append(node("p", `${words(verdict.concern_level)} concern. ${verdict.explanation}`));
   } else {
-    box.append(node("p", `Spread review unavailable: ${judge.reason}. This does not change the content assessment.`, "spread-review"));
+    spread.append(node("p", `Unavailable: ${judge.reason}. The content assessment is unaffected.`));
   }
+  spread.append(node("p", "One item does not establish coordination.", "small"));
   const cloud = placement.nearest_cloud;
-  const where = node("p");
+  const group = section("Related group");
   if (cloud) {
     const row = state.rows.get(cloud.cluster_id);
     const hidden = row?.discarded;
@@ -107,11 +119,11 @@ function renderVerdict(result) {
       row?.analysis_stale ? "assessment needs refresh" : null,
       row && row.status !== "ok" ? `assessment ${words(row.status)}` : null,
     ].filter(Boolean);
-    where.append("Closest group: ", link, ` · group review priority ${cloud.review_priority}/100${qualifiers.length ? ` (${qualifiers.join("; ")})` : ""}.`);
-    box.append(where, node("p", "The group priority describes the existing group, not this submission. A semantic match alone does not establish shared framing or coordination.", "small"));
+    const where = node("p");
+    where.append(link, ` · group priority ${cloud.review_priority}/100${qualifiers.length ? ` (${qualifiers.join("; ")})` : ""}`);
+    group.append(where, node("p", "This is the existing group's priority, not the submitted item's content concern. A match does not establish shared framing.", "small"));
   } else {
-    where.textContent = "No matching group among the closest posts.";
-    box.append(where);
+    group.append(node("p", "No matching group among the closest posts."));
   }
   box.append(node("p", `content: ${result.content_review?.model || result.models.chat} · spread: ${judge.model}`, "small"));
   return box;
@@ -146,7 +158,9 @@ async function send() {
       const detail = typeof body.detail === "string" ? body.detail : `HTTP ${response.status}`;
       throw new Error(detail);
     }
-    pending.replaceChildren(node("span", body.reply), renderVerdict(body));
+    const summary = node("section", null, "reply-summary");
+    summary.append(node("h3", "Summary"), node("p", body.reply));
+    pending.replaceChildren(summary, renderVerdict(body));
     state.history.push(
       { role: "user", content: (text || `Attached: ${files.map((file) => file.name).join(", ")}`).slice(0, 4000) },
       { role: "assistant", content: body.reply.slice(0, 4000) },

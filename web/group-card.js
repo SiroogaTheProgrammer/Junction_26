@@ -9,7 +9,7 @@ function node(tag, text, className) {
   return element;
 }
 
-export function createGroupCard(card, select, onVisibilityChange = () => {}) {
+export function createGroupCard(card, select, onVisibilityChange = () => {}, apiRoot = "/api/clusters") {
   let request = null;
 
   function render({ cluster, analysis }) {
@@ -40,7 +40,7 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}) {
     const overview = section("Overview");
     if (cluster.analysis_stale) overview.append(node("p", "Saved model assessment predates the current statistics, prompt or sample size. Rerun the analyzer before treating its concern as current.", "small"));
     overview.append(node("p", [
-      `${cluster.size.toLocaleString()} posts in the dataset`,
+      `${cluster.size.toLocaleString()} posts in the ${cluster.source_scope === "live batch" ? "live batch" : "dataset"}`,
       `review priority ${cluster.review_priority}/100`,
       `concern ${words(parsed?.concern_level || analysis.status)}`,
       `confidence ${percent(parsed?.confidence)}`,
@@ -96,7 +96,7 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}) {
     }
     table.append(body);
     spread.append(table);
-    if (cluster.burstiness_reliable === false) spread.append(node("p", "Burst timing is unreliable: the dataset spans fewer than six burst windows. Excluded from flags and priority.", "small"));
+    if (cluster.burstiness_reliable === false) spread.append(node("p", cluster.burstiness_note || "Burst timing is unreliable: the dataset spans fewer than six burst windows. Excluded from flags and priority.", "small"));
     if (stats.top_domain) spread.append(node("p", `Top domain: ${stats.top_domain}`, "small"));
     if (stats.top_hashtag) spread.append(node("p", `Top hashtag: #${stats.top_hashtag}`, "small"));
     spread.append(node("p", cluster.behavior_anomaly ? `Above baseline: ${cluster.anomaly_triggered_by.map(words).join(", ")}` : "No above-threshold behaviour flag; this does not establish that activity is organic.", "small"));
@@ -120,12 +120,12 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}) {
     card.replaceChildren(node("p", "loading…"));
     card.hidden = false;
     try {
-      const response = await fetch(`/api/clusters/${id}`, { signal: controller.signal });
+      const response = await fetch(`${apiRoot}/${id}`, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const { examples, needsExamples } = render(await response.json());
       if (needsExamples) {
         examples.append(node("p", "Loading examples…", "small"));
-        const page = await fetch(`/api/clusters/${id}/posts?limit=5`, { signal: controller.signal });
+        const page = await fetch(`${apiRoot}/${id}/posts?limit=5`, { signal: controller.signal });
         if (!page.ok) throw new Error(`Could not load examples (HTTP ${page.status})`);
         const { posts } = await page.json();
         examples.replaceChildren(node("h3", "Example posts"), ...posts.map((post) => node("blockquote", post.text, "post")));
