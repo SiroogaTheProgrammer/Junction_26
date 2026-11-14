@@ -126,7 +126,8 @@ All settings come from environment variables through `config.py`. Commit `.env.e
 | `CHAT_MAX_PER_MINUTE` / `CHAT_CONCURRENCY` | `20` / `2` | Cost guards for the public demo: total chat requests per minute and in parallel |
 | `MIN_REVIEW_PRIORITY` | `1` | Assessed clouds scoring below this are dropped from the map. `0` keeps everything |
 | `LIVE_POSTS_PER_SECOND` | `120` | Legacy offline replay API speed |
-| `LIVE_DATASET` / `LIVE_BATCH_SIZE` / `LIVE_WINDOW_POSTS` | 15-language dataset / `500` / `25000` | Stream source, grouping batch and bounded in-memory rolling window |
+| `LIVE_DATASET` / `LIVE_BATCH_SIZE` / `LIVE_WINDOW_POSTS` | 15-language dataset / `500` / `50000` | Stream source, grouping batch and bounded in-memory rolling window |
+| `LIVE_MIN_CLUSTER_SIZE` / `LIVE_MIN_SAMPLES` | `10` / `3` | Live-only HDBSCAN minimum group size and density requirement |
 | `LIVE_DATASET_REVISION` | `main` | Requested revision resolved to a pinned commit in the live checkpoint |
 | `RELEVANCE_HIDE_BELOW` | `0.35` | Hide lower-relevance topics unless their spread is unusual |
 | `RELEVANCE_FULL_FROM` | `0.65` | Full-opacity relevance threshold; must be at least HIDE_BELOW |

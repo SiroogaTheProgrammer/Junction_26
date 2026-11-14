@@ -59,6 +59,46 @@ def test_stream_processes_beyond_first_window_and_only_writes_cursor(tmp_path, m
     assert checkpoint.complete and checkpoint.processed == 80
 
 
+@pytest.mark.parametrize("eligible", [0, 20, 25])
+def test_last_completed_batch_speed_measures_eligible_posts(tmp_path, monkeypatch, eligible):
+    settings = Settings(
+        _env_file=None, data_dir=tmp_path, llm_api_key="test-key",
+        live_batch_size=25, live_window_posts=50,
+    )
+    source = [
+        {"did": f"did:example:{i}", "rkey": str(i),
+         "text": f"A sufficiently long example post number {i}" if i < eligible else "short",
+         "created_at": "2026-01-01T00:00:00Z"}
+        for i in range(25)
+    ]
+    times = iter([10.0, 14.0, 20.0])
+    monkeypatch.setattr(live, "perf_counter", lambda: next(times))
+    monkeypatch.setattr(live, "_resolve_revision", lambda _: "test-revision")
+    monkeypatch.setattr(live, "_source", lambda *_: Dataset.from_list(source).to_iterable_dataset())
+    monkeypatch.setattr(live, "choose_device", lambda _: "cpu")
+    monkeypatch.setattr(live, "load_model", lambda *_: object())
+    monkeypatch.setattr(live, "_group", lambda *_: [])
+    monkeypatch.setattr(live, "create_client", lambda _: AsyncMock())
+
+    processor = live.LiveProcessor(settings)
+    assert processor.snapshot()["last_batch"] is None
+    asyncio.run(processor.run())
+    snapshot = processor.snapshot()
+    assert snapshot["status"] == "complete"
+    assert snapshot["batch_size"] == 25
+    assert snapshot["last_batch"] == {
+        "source_rows": 25, "posts": eligible, "seconds": 4.0,
+        "grouped_posts": 0, "posts_per_second": eligible / 4,
+    }
+
+
+def test_batch_speed_unavailable_for_zero_elapsed_time(tmp_path, monkeypatch):
+    processor = live.LiveProcessor(Settings(_env_file=None, data_dir=tmp_path))
+    monkeypatch.setattr(live, "perf_counter", lambda: 10.0)
+    processor._record_batch(10.0, 25, 20, 0)
+    assert processor.snapshot()["last_batch"]["posts_per_second"] is None
+
+
 def test_live_embedding_and_hdbscan_group_new_posts(monkeypatch):
     frame = pd.DataFrame({
         "post_id": range(30), "text": [f"Example content number {i}" for i in range(30)],
@@ -85,16 +125,49 @@ def test_live_embedding_and_hdbscan_group_new_posts(monkeypatch):
     assert len(group["representative_post_ids"]) == 10
 
 
-def test_stream_passes_10000_posts_and_never_retains_more_than_25000(tmp_path, monkeypatch):
+def test_live_clustering_finds_smaller_groups_without_forcing_noise(monkeypatch):
+    rng = np.random.default_rng(42)
+    vectors = rng.normal(0, .08, (100, 64))
+    vectors[:15, 0] += 3
+    vectors[15:30, 1] += 3
+    vectors[30:] = rng.normal(0, 1, (70, 64))
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    frame = pd.DataFrame({
+        "post_id": range(100), "text": [f"Example content number {i}" for i in range(100)],
+        "author": [f"author-{i}" for i in range(100)],
+        "created_at": pd.date_range("2026-01-01", periods=100, freq="min", tz="UTC"),
+    })
+    monkeypatch.setattr(live, "encode", lambda *_args, **_kwargs: vectors)
+    old = Settings(_env_file=None, live_min_cluster_size=25, live_min_samples=5)
+    assert live._group(frame, object(), old, 0) == []
+    groups = live._group(frame, object(), Settings(_env_file=None), 0)
+    assert len(groups) == 2
+    assert all(group["size"] >= 10 for group, _ in groups)
+    assert sum(group["size"] for group, _ in groups) < len(frame)
+
+
+def test_snapshot_distinguishes_hidden_groups_from_no_groups(tmp_path):
+    processor = live.LiveProcessor(Settings(_env_file=None, data_dir=tmp_path))
+    assert processor.snapshot()["total_groups"] == 0
+    assert processor.snapshot()["hidden_groups"] == 0
+    processor.batches.append((10, [{"cluster": {
+        "cluster_id": 0, "discarded": True, "status": "ok",
+    }}]))
+    snapshot = processor.snapshot()
+    assert snapshot["total_groups"] == snapshot["hidden_groups"] == 1
+    assert snapshot["groups"] == []
+
+
+def test_stream_passes_50000_posts_and_never_retains_more_than_50000(tmp_path, monkeypatch):
     settings = Settings(
         _env_file=None, llm_api_key="test-key", llm_base_url="https://test.invalid/v1",
-        live_batch_size=500, live_window_posts=25000, data_dir=tmp_path,
+        live_batch_size=500, data_dir=tmp_path,
     )
     source = [
         {"did": f"did:example:{i}", "rkey": str(i),
          "text": f"A sufficiently long example post number {i}",
          "created_at": "2026-01-01T00:00:00Z"}
-        for i in range(25300)
+        for i in range(50300)
     ]
     monkeypatch.setattr(live, "_resolve_revision", lambda _: "test-revision")
     monkeypatch.setattr(live, "_source", lambda *_: Dataset.from_list(source).to_iterable_dataset())
@@ -107,13 +180,13 @@ def test_stream_passes_10000_posts_and_never_retains_more_than_25000(tmp_path, m
     async def verify():
         task = asyncio.create_task(processor.run())
         while not task.done():
-            assert processor.retained <= 25000
+            assert processor.retained <= 50000
             await asyncio.sleep(0)
         await task
 
     asyncio.run(verify())
-    assert processor.processed == processor.scanned == 25300
-    assert processor.retained == 24800
+    assert processor.processed == processor.scanned == 50300
+    assert processor.retained == 49800
     assert processor.status == "complete"
 
 
@@ -272,7 +345,7 @@ def test_real_hdbscan_groups_separate_synthetic_batches(monkeypatch):
         "created_at": pd.date_range("2026-01-01", periods=60, freq="min", tz="UTC"),
     })
     monkeypatch.setattr(live, "encode", lambda *_args, **_kwargs: vectors)
-    groups = live._group(frame, object(), Settings(_env_file=None, hdbscan_min_cluster_size=10), 0)
+    groups = live._group(frame, object(), Settings(_env_file=None, live_min_cluster_size=10), 0)
     assert sorted(group["size"] for group, _ in groups) == [30, 30]
 
 

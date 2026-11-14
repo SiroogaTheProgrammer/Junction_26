@@ -55,7 +55,8 @@ embedding model loads.
 | `MIN_REVIEW_PRIORITY` | Current completed groups below this score are dropped (default 1; stale assessments remain visible) |
 | `LIVE_DATASET` | Dataset streamed in the live test; defaults to the 15-language Bluesky dataset |
 | `LIVE_DATASET_REVISION` | Dataset revision to resolve on the first run (default `main`); its commit is pinned in the checkpoint |
-| `LIVE_BATCH_SIZE`, `LIVE_WINDOW_POSTS` | Live batch size (500) and maximum rolling window (25,000); batch size must not exceed the window |
+| `LIVE_BATCH_SIZE`, `LIVE_WINDOW_POSTS` | Live batch size (500) and maximum rolling window (50,000); batch size must not exceed the window |
+| `LIVE_MIN_CLUSTER_SIZE`, `LIVE_MIN_SAMPLES` | Live-only HDBSCAN group size (10) and density requirement (3); offline clustering uses separate `HDBSCAN_*` settings |
 | `CHAT_JUDGE_TIMEOUT_S` | Time budget for the contextual judge, default 60 seconds; an existing `.env` value overrides it |
 | `CHAT_ASSESSMENT_MAX_TOKENS` | Maximum output-token budget for structured content and spread assessments (default 32,768; set lower if the endpoint requires it) |
 
@@ -86,7 +87,11 @@ The rolling window is not persisted, so its groups disappear on server restart,
 including when restarting after the source has been exhausted.
 
 Each batch is embedded and grouped independently using HDBSCAN on normalized
-embeddings. Lightning assesses each group with the same prompt and rules as the
+embeddings. Live-specific clustering defaults allow smaller groups than the
+offline defaults; this may increase model calls and does not guarantee a group
+in every batch. The page distinguishes no groups found from groups below the
+review threshold and shows how many posts in the last batch were grouped.
+Lightning assesses each group with the same prompt and rules as the
 offline analyzer. Groups from different batches are **not merged**; events split
 across batches can be missed. Group scores and baselines are batch-local; burst
 timing is excluded because these batches do not establish a reliable dataset-wide
@@ -96,7 +101,7 @@ failed analyses. It does not claim that detected patterns prove coordination.
 The existing `/api/live/stream` remains a legacy offline replay API; the new
 page uses `/api/live/processed`.
 
-The live processor retains only results and samples belonging to at most 25,000
+The live processor retains only results and samples belonging to at most 50,000
 recent eligible posts, evicting whole old batches. It does not write live post
 vectors, samples or analyses to disk or alter the offline dataset/Qdrant.
 Dataset streaming and model libraries can still maintain their own Hugging Face

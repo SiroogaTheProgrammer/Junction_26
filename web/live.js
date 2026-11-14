@@ -26,7 +26,16 @@ function render(snapshot) {
   byId("info").textContent = `live test · ${snapshot.dataset} · new groups per batch · not real-time social traffic`;
   byId("arrived").textContent = `${snapshot.processed.toLocaleString()} processed`;
   byId("rate").textContent = `${snapshot.retained.toLocaleString()} / ${snapshot.window_limit.toLocaleString()} posts in window`;
-  byId("clock").textContent = `${snapshot.scanned.toLocaleString()} source rows scanned${snapshot.resumed_from ? ` · resumed at ${snapshot.resumed_from.toLocaleString()}` : ""} · ${snapshot.total_groups.toLocaleString()} groups in window${snapshot.failed_groups ? ` · ${snapshot.failed_groups} analyses failed` : ""}`;
+  byId("batch-size").textContent = `batch size: ${snapshot.batch_size.toLocaleString()} source rows`;
+  const batch = snapshot.last_batch;
+  const speed = batch?.posts_per_second;
+  byId("batch-speed").textContent = batch
+    ? `last batch: ${batch.posts.toLocaleString()} posts / ${batch.source_rows.toLocaleString()} rows · ${batch.grouped_posts.toLocaleString()} grouped · ${batch.seconds.toFixed(1)} s · ${speed == null ? "speed unavailable" : `${speed.toFixed(2)} posts/s`}`
+    : "last batch: awaiting results";
+  byId("clock").textContent = `${snapshot.scanned.toLocaleString()} source rows scanned${snapshot.resumed_from ? ` · resumed at ${snapshot.resumed_from.toLocaleString()}` : ""} · ${snapshot.total_groups.toLocaleString()} groups in window${snapshot.hidden_groups ? ` · ${snapshot.hidden_groups} below threshold` : ""}${snapshot.failed_groups ? ` · ${snapshot.failed_groups} analyses failed` : ""}`;
+  const emptyReason = snapshot.total_groups
+    ? "Groups were found, but all are below the review threshold."
+    : "No groups found in the current window; posts may be too dissimilar or batches too small.";
   byId("ranking").replaceChildren(...rows.slice(0, 6).map((row) => {
     const item = document.createElement("div");
     const score = Object.assign(document.createElement("b"), { textContent: row.review_priority });
@@ -42,10 +51,10 @@ function render(snapshot) {
   } else if (snapshot.status === "complete") {
     if (rows.length) byId("notice").hidden = true;
     else if (snapshot.resumed_from && !snapshot.retained) notice("The dataset is exhausted. The previous rolling window was not saved across the server restart.");
-    else notice("The dataset is exhausted. No groups above the review threshold remain in the window.");
+    else notice(`The dataset is exhausted. ${emptyReason}`);
     byId("rate").textContent += " · dataset exhausted";
   } else if (!rows.length) {
-    notice(snapshot.processed ? "No groups above the review threshold yet; processing continues." : "Processing the first batch…");
+    notice(snapshot.last_batch ? `${emptyReason} Processing continues.` : "Processing the first batch…");
   } else {
     byId("notice").hidden = true;
   }

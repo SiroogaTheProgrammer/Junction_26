@@ -4,6 +4,7 @@ import fcntl
 import logging
 from collections import deque
 from itertools import islice
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -69,15 +70,15 @@ def _prepare(raw: list[dict], settings: Settings, first_id: int) -> pd.DataFrame
 
 
 def _group(frame: pd.DataFrame, model: Any, settings: Settings, next_id: int) -> list[tuple[dict, pd.DataFrame]]:
-    if len(frame) < settings.hdbscan_min_cluster_size:
+    if len(frame) < settings.live_min_cluster_size:
         return []
     texts = ["query: " + clean_for_embedding(text) for text in frame["text"]]
     vectors = encode(model, texts, settings.embed_batch, progress=False)
     if not np.isfinite(vectors).all():
         raise ValueError("The live embedding model returned non-finite vectors")
     labels = HDBSCAN(
-        min_cluster_size=settings.hdbscan_min_cluster_size,
-        min_samples=min(settings.hdbscan_min_samples, len(frame) - 1),
+        min_cluster_size=settings.live_min_cluster_size,
+        min_samples=min(settings.live_min_samples, len(frame) - 1),
         metric="euclidean",
     ).fit_predict(vectors)
     groups = []
@@ -110,6 +111,7 @@ class LiveProcessor:
         self.error: str | None = None
         self.checkpoint_path = settings.data_path / "live_progress.json"
         self.resumed_from = 0
+        self.last_batch: dict[str, int | float | None] | None = None
 
     def start(self) -> None:
         if self.task is None:
@@ -126,13 +128,23 @@ class LiveProcessor:
             "scanned": self.scanned, "processed": self.processed, "retained": self.retained,
             "window_limit": self.settings.live_window_posts,
             "dataset": self.settings.live_dataset, "resumed_from": self.resumed_from,
+            "batch_size": self.settings.live_batch_size, "last_batch": self.last_batch,
             "groups": visible, "total_groups": len(groups),
+            "hidden_groups": sum(group["cluster"]["discarded"] for group in groups),
             "failed_groups": sum(group["cluster"]["status"] == "failed" for group in groups),
         }
 
     def detail(self, group_id: int) -> dict[str, Any] | None:
         return next((group for _, batch in self.batches for group in batch
                      if group["cluster"]["cluster_id"] == group_id), None)
+
+    def _record_batch(self, started: float, source_rows: int, posts: int, grouped_posts: int) -> None:
+        elapsed = perf_counter() - started
+        self.last_batch = {
+            "source_rows": source_rows, "posts": posts, "seconds": elapsed,
+            "grouped_posts": grouped_posts,
+            "posts_per_second": posts / elapsed if elapsed > 0 else None,
+        }
 
     async def run(self) -> None:
         self.status = "starting"
@@ -178,6 +190,7 @@ class LiveProcessor:
             self.revision += 1
             async with create_client(self.settings) as client:
                 while True:
+                    batch_started = perf_counter()
                     raw = await asyncio.to_thread(lambda: list(islice(source, self.settings.live_batch_size)))
                     if not raw:
                         checkpoint.complete = True
@@ -191,6 +204,7 @@ class LiveProcessor:
                         checkpoint.source_state = dataset.state_dict()
                         checkpoint.scanned = self.scanned
                         write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
+                        self._record_batch(batch_started, len(raw), 0, 0)
                         self.revision += 1
                         continue
                     groups = await asyncio.to_thread(_group, frame, model, self.settings, self.group_id)
@@ -235,6 +249,7 @@ class LiveProcessor:
                     checkpoint.source_state = dataset.state_dict()
                     checkpoint.scanned, checkpoint.processed, checkpoint.group_id = self.scanned, self.processed, self.group_id
                     write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
+                    self._record_batch(batch_started, len(raw), count, sum(len(posts) for _, posts in groups))
                     self.revision += 1
         except asyncio.CancelledError:
             raise

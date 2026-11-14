@@ -228,12 +228,13 @@ button, textarea { font: inherit; color: inherit; }
 .composer .hint { color: var(--text-3); font-size: var(--small-size); line-height: 1.8; user-select: none; }
 
 /* Live ranking */
-.ranking { position: absolute; left: var(--edge); bottom: var(--edge); z-index: 2; display: grid; gap: 4px; font-size: var(--small-size); color: var(--text-2); max-width: calc(100% - 2 * var(--edge)); }
+.live-summary { position: absolute; left: var(--edge); right: var(--edge); bottom: var(--edge); z-index: 2; display: flex; justify-content: space-between; align-items: end; gap: 20px; pointer-events: none; }
+.ranking { display: grid; gap: 4px; font-size: var(--small-size); color: var(--text-2); min-width: 0; max-width: 50%; }
 .ranking div { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: baseline; transition: opacity 200ms; }
 .ranking b { font-weight: 600; color: var(--text); text-align: right; }
 .ranking span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
 .ranking i { font-style: normal; color: var(--label-color); }
-.status { position: absolute; right: var(--edge); bottom: var(--edge); z-index: 2; text-align: right; font-size: var(--small-size); color: var(--text-3); display: grid; gap: 2px; }
+.status { min-width: 0; text-align: right; font-size: var(--small-size); color: var(--text-3); display: grid; gap: 2px; }
 .status strong { color: var(--text); font-size: var(--title-size); font-weight: 600; letter-spacing: -.04em; }
 
 @media (min-width: 1000px) {
@@ -249,9 +250,9 @@ button, textarea { font: inherit; color: inherit; }
   .thread { max-height: 36vh; }
   .composer .hint { display: none; }
   .ranking span { max-width: 22ch; }
-  /* Narrow screens: the counter sits under the ranking instead of beside it. */
-  .ranking { bottom: calc(var(--edge) + 84px); }
-  .status { left: var(--edge); right: auto; text-align: left; }
+  .live-summary { flex-direction: column; align-items: start; gap: 16px; }
+  .ranking { max-width: 100%; }
+  .status { text-align: left; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

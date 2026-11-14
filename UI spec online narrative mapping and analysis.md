@@ -69,8 +69,9 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
 ## 6. Live test (`/live`)
 
 - The ball view starts a shared dataset-stream processor via `GET /api/live/processed`. New batches are embedded, grouped and assessed; groups from different batches are not merged.
-- The rolling window holds at most 25,000 eligible posts by default and evicts whole batches. At most 60 highest-priority groups are shown.
-- **Bottom left:** the six highest-priority visible groups. **Bottom right:** processed and retained counts, source rows scanned, group count and analysis failures.
+- The rolling window holds at most 50,000 eligible posts by default and evicts whole batches. At most 60 highest-priority groups are shown. Live clustering defaults to a minimum of 10 posts and 3 density samples; batch-local groups below the review threshold remain hidden.
+- **Bottom left:** the six highest-priority visible groups. **Bottom right:** processed and retained counts, configured batch size, last completed batch's eligible posts, grouped posts, source rows, elapsed time and posts per second, source rows scanned, group counts (including below-threshold groups) and analysis failures. Batch timing covers reading through checkpointing; model startup is excluded, and the last batch metrics reset on restart.
+- When no bubbles are visible, distinguish between no groups found and all groups being below the review threshold.
 - Show the dataset and the source row count resumed from. A persisted cursor resumes after the last completed batch, but the rolling window is in memory only. If a completed run is restarted, explain why its previous groups are no longer displayed.
 - Corner text states that this is historical simulated traffic, not a live feed. The card displays live batch statistics and examples. Errors are explicit; restart the server to retry after fixing the cause.
 

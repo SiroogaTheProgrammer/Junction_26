@@ -71,8 +71,10 @@ class Settings(BaseSettings):
     live_posts_per_second: int = Field(default=120, ge=1)
     live_dataset: str = "itsmebatuhan/bluesky-10m-posts-15-languages"
     live_dataset_revision: str = "main"
-    live_window_posts: int = Field(default=25_000, ge=1)
+    live_window_posts: int = Field(default=50_000, ge=1)
     live_batch_size: int = Field(default=500, ge=25, le=5000)
+    live_min_cluster_size: int = Field(default=10, ge=2)
+    live_min_samples: int = Field(default=3, ge=1)
 
     @model_validator(mode="after")
     def validate_relevance_thresholds(self) -> "Settings":
