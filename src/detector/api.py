@@ -201,7 +201,10 @@ async def limit_chat_body(request: Request, call_next):
             return JSONResponse({"detail": "Content-Length is required"}, status_code=411)
         if int(length) > _chat_body_limit():
             return JSONResponse({"detail": "The request and its attachments are too large"}, status_code=413)
-    return await call_next(request)
+    response = await call_next(request)
+    if request.url.path in {"/", "/explore", "/live"} or request.url.path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 def _data(request: Request) -> dict[str, Any]:

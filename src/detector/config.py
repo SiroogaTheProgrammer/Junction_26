@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     super_llm_timeout_s: float = Field(default=120, gt=0)
     chat_judge: Literal["lightning", "super"] = "lightning"
     chat_judge_timeout_s: float = Field(default=60, gt=0)
+    chat_assessment_max_tokens: int = Field(default=32768, ge=2048, le=32768)
     chat_neighbors: int = Field(default=25, ge=1)
     chat_max_attachments: int = Field(default=4, ge=0)
     chat_max_attachment_mb: float = Field(default=4, gt=0)
@@ -69,6 +70,7 @@ class Settings(BaseSettings):
     min_review_priority: int = Field(default=1, ge=0, le=100)
     live_posts_per_second: int = Field(default=120, ge=1)
     live_dataset: str = "itsmebatuhan/bluesky-10m-posts-15-languages"
+    live_dataset_revision: str = "main"
     live_window_posts: int = Field(default=25_000, ge=1)
     live_batch_size: int = Field(default=500, ge=25, le=5000)
 

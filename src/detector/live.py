@@ -1,5 +1,6 @@
 """Bounded in-memory processing of a streamed dataset, shared by live viewers."""
 import asyncio
+import fcntl
 import logging
 from collections import deque
 from itertools import islice
@@ -8,6 +9,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from datasets import load_dataset
+from huggingface_hub import HfApi
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sklearn.cluster import HDBSCAN
 
 from detector.analyze import _analyze_one
@@ -15,17 +18,47 @@ from detector.config import Settings
 from detector.embedding import choose_device, clean_for_embedding, encode, load_model
 from detector.llm import create_client
 from detector.load import prepare_frame
+from detector.io import read_json, write_json
 from detector.rules import behavior_anomaly, review_priority
 from detector.stats import baseline_for, build_baseline, cluster_stats, describe_signals
 
 logger = logging.getLogger(__name__)
 
 
-def _source(settings: Settings) -> Any:
-    dataset = load_dataset(settings.live_dataset, streaming=True)
+class LiveCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(default=1, ge=1, le=1)
+    dataset: str
+    requested_revision: str
+    resolved_revision: str = Field(min_length=1)
+    source_state: dict[str, Any] | None = None
+    scanned: int = Field(default=0, ge=0)
+    processed: int = Field(default=0, ge=0)
+    group_id: int = Field(default=0, ge=0)
+    complete: bool = False
+
+    @model_validator(mode="after")
+    def validate_progress(self) -> "LiveCheckpoint":
+        if self.processed > self.scanned:
+            raise ValueError("processed posts cannot exceed scanned source rows")
+        if self.scanned and self.source_state is None:
+            raise ValueError("source state is required after scanning rows")
+        return self
+
+
+def _resolve_revision(settings: Settings) -> str:
+    info = HfApi().dataset_info(settings.live_dataset, revision=settings.live_dataset_revision)
+    if not info.sha:
+        raise ValueError("Dataset revision could not be resolved to a commit")
+    return info.sha
+
+
+def _source(settings: Settings, revision: str) -> Any:
+    dataset = load_dataset(settings.live_dataset, revision=revision, streaming=True)
     if "train" not in dataset:
         raise ValueError(f"Dataset {settings.live_dataset} does not contain a train split")
-    return iter(dataset["train"])
+    return dataset["train"]
 
 
 def _prepare(raw: list[dict], settings: Settings, first_id: int) -> pd.DataFrame:
@@ -62,7 +95,7 @@ def _group(frame: pd.DataFrame, model: Any, settings: Settings, next_id: int) ->
 
 
 class LiveProcessor:
-    """Processes one bounded batch at a time; no live artifacts are written to disk."""
+    """Processes bounded batches with an on-disk cursor and an in-memory window."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -75,6 +108,8 @@ class LiveProcessor:
         self.revision = 0
         self.status = "idle"
         self.error: str | None = None
+        self.checkpoint_path = settings.data_path / "live_progress.json"
+        self.resumed_from = 0
 
     def start(self) -> None:
         if self.task is None:
@@ -90,6 +125,7 @@ class LiveProcessor:
             "status": self.status, "error": self.error, "revision": self.revision,
             "scanned": self.scanned, "processed": self.processed, "retained": self.retained,
             "window_limit": self.settings.live_window_posts,
+            "dataset": self.settings.live_dataset, "resumed_from": self.resumed_from,
             "groups": visible, "total_groups": len(groups),
             "failed_groups": sum(group["cluster"]["status"] == "failed" for group in groups),
         }
@@ -101,10 +137,41 @@ class LiveProcessor:
     async def run(self) -> None:
         self.status = "starting"
         self.revision += 1
+        lock = None
         try:
+            self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            lock = (self.checkpoint_path.parent / "live_progress.lock").open("a")
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError("Another process is already running live processing for this data folder") from exc
             if not self.settings.llm_api_key or not self.settings.llm_api_key.get_secret_value().strip():
                 raise ValueError("Configure LLM_API_KEY and LLM_BASE_URL for live group analysis")
-            source = await asyncio.to_thread(_source, self.settings)
+            saved = read_json(self.checkpoint_path)
+            if saved is not None:
+                checkpoint = LiveCheckpoint.model_validate(saved)
+                if (checkpoint.dataset, checkpoint.requested_revision) != (
+                    self.settings.live_dataset, self.settings.live_dataset_revision,
+                ):
+                    raise ValueError("Live dataset or revision differs from the saved checkpoint; use a separate data folder")
+            else:
+                resolved = await asyncio.to_thread(_resolve_revision, self.settings)
+                checkpoint = LiveCheckpoint(
+                    dataset=self.settings.live_dataset, requested_revision=self.settings.live_dataset_revision,
+                    resolved_revision=resolved,
+                )
+                write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
+            self.scanned, self.processed, self.group_id = checkpoint.scanned, checkpoint.processed, checkpoint.group_id
+            self.resumed_from = checkpoint.scanned
+            self.revision += 1
+            if checkpoint.complete:
+                self.status = "complete"
+                self.revision += 1
+                return
+            dataset = await asyncio.to_thread(_source, self.settings, checkpoint.resolved_revision)
+            if checkpoint.source_state is not None:
+                dataset.load_state_dict(checkpoint.source_state)
+            source = iter(dataset)
             device = await asyncio.to_thread(choose_device, self.settings.embed_device)
             model = await asyncio.to_thread(load_model, self.settings, device)
             self.status = "running"
@@ -113,12 +180,17 @@ class LiveProcessor:
                 while True:
                     raw = await asyncio.to_thread(lambda: list(islice(source, self.settings.live_batch_size)))
                     if not raw:
+                        checkpoint.complete = True
+                        write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
                         self.status = "complete"
                         self.revision += 1
                         break
                     frame = await asyncio.to_thread(_prepare, raw, self.settings, self.processed)
                     self.scanned += len(raw)
                     if frame.empty:
+                        checkpoint.source_state = dataset.state_dict()
+                        checkpoint.scanned = self.scanned
+                        write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
                         self.revision += 1
                         continue
                     groups = await asyncio.to_thread(_group, frame, model, self.settings, self.group_id)
@@ -160,6 +232,9 @@ class LiveProcessor:
                     while self.retained > self.settings.live_window_posts:
                         removed, _ = self.batches.popleft()
                         self.retained -= removed
+                    checkpoint.source_state = dataset.state_dict()
+                    checkpoint.scanned, checkpoint.processed, checkpoint.group_id = self.scanned, self.processed, self.group_id
+                    write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
                     self.revision += 1
         except asyncio.CancelledError:
             raise
@@ -168,6 +243,9 @@ class LiveProcessor:
             self.status = "error"
             self.error = f"{type(exc).__name__}: {exc}"
             self.revision += 1
+        finally:
+            if lock is not None:
+                lock.close()
 
     async def close(self) -> None:
         if self.task and not self.task.done():

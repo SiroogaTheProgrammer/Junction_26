@@ -71,6 +71,7 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
 - The ball view starts a shared dataset-stream processor via `GET /api/live/processed`. New batches are embedded, grouped and assessed; groups from different batches are not merged.
 - The rolling window holds at most 25,000 eligible posts by default and evicts whole batches. At most 60 highest-priority groups are shown.
 - **Bottom left:** the six highest-priority visible groups. **Bottom right:** processed and retained counts, source rows scanned, group count and analysis failures.
+- Show the dataset and the source row count resumed from. A persisted cursor resumes after the last completed batch, but the rolling window is in memory only. If a completed run is restarted, explain why its previous groups are no longer displayed.
 - Corner text states that this is historical simulated traffic, not a live feed. The card displays live batch statistics and examples. Errors are explicit; restart the server to retry after fixing the cause.
 
 ## 7. Accessibility and motion

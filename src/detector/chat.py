@@ -331,11 +331,11 @@ def _judge_prompt(item: str, nearest: dict[str, Any] | None, neighbors: list[dic
 
 async def _structured_assessment(
     client: AsyncOpenAI, model: str, timeout: float, system: str,
-    content: list[dict[str, Any]], schema: type[AssessmentT],
+    content: list[dict[str, Any]], schema: type[AssessmentT], max_tokens: int = 32768,
 ) -> tuple[AssessmentT, str]:
     deadline = asyncio.get_running_loop().time() + timeout
     budget = 2048
-    for attempt in range(3):
+    for attempt in range(5):
         remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             raise JudgeError("the assessment exceeded its time budget")
@@ -357,22 +357,29 @@ async def _structured_assessment(
         except APIError as exc:
             raise JudgeError(f"the assessment endpoint did not answer ({_upstream_reason(exc)})") from exc
         except (json.JSONDecodeError, ValueError) as exc:
-            if attempt == 2:
-                raise JudgeError(f"no valid assessment after 3 attempts ({type(exc).__name__})") from exc
-            if isinstance(exc, CompletionTokenLimitError):
-                budget = min(budget * 2, 8192)
+            truncated = isinstance(exc, CompletionTokenLimitError)
+            if attempt == 4 or (truncated and budget >= max_tokens) or (not truncated and attempt >= 2):
+                detail = (
+                    f"the model exceeded the {budget}-token output limit; check that reasoning is disabled "
+                    "and the endpoint supports the configured output budget"
+                    if truncated else f"no valid assessment after {attempt + 1} attempts ({type(exc).__name__})"
+                )
+                raise JudgeError(detail) from exc
+            if truncated:
+                budget = min(budget * 2, max_tokens)
             content = [*content, {
                 "type": "text",
-                "text": f"Your previous response failed validation: {exc}. Return only complete, concise JSON matching every required schema field.",
+                "text": "The previous response failed validation or was incomplete. Return only complete, concise JSON "
+                        "with every required field. Do not output reasoning or repeat the supplied posts.",
             }]
     raise JudgeError("the model returned no assessment")
 
 
 async def judge_item(
-    client: AsyncOpenAI, model: str, timeout: float, prompt: str,
+    client: AsyncOpenAI, model: str, timeout: float, prompt: str, max_tokens: int = 32768,
 ) -> tuple[Verdict, str]:
     return await _structured_assessment(
-        client, model, timeout, JUDGE_SYSTEM, [{"type": "text", "text": prompt}], Verdict,
+        client, model, timeout, JUDGE_SYSTEM, [{"type": "text", "text": prompt}], Verdict, max_tokens,
     )
 
 
@@ -388,7 +395,7 @@ async def assess_content(
     content += [{"type": "image_url", "image_url": {"url": url}} for _, url in material.images]
     result, _ = await _structured_assessment(
         client, settings.super_llm_model, settings.super_llm_timeout_s,
-        CONTENT_SYSTEM, content, ContentAssessment,
+        CONTENT_SYSTEM, content, ContentAssessment, settings.chat_assessment_max_tokens,
     )
     return result
 
@@ -438,6 +445,7 @@ async def run_chat(
             raw_verdict, _ = await judge_item(
                 judge_client, judge_model, settings.chat_judge_timeout_s,
                 _judge_prompt(placed_text, nearest, neighbors, len(placement["neighbors"])),
+                settings.chat_assessment_max_tokens,
             )
             verdict, rule_log = apply_verdict_rules(raw_verdict, nearest)
             return verdict, {"model": judge_model, "status": "ok", "reason": None, "rule_log": rule_log}

@@ -54,8 +54,10 @@ embedding model loads.
 | `HF_DATASET` | Defaults to `itsmebatuhan/bluesky-10m-posts-15-languages`; `--dataset` overrides an older `.env` value |
 | `MIN_REVIEW_PRIORITY` | Current completed groups below this score are dropped (default 1; stale assessments remain visible) |
 | `LIVE_DATASET` | Dataset streamed in the live test; defaults to the 15-language Bluesky dataset |
+| `LIVE_DATASET_REVISION` | Dataset revision to resolve on the first run (default `main`); its commit is pinned in the checkpoint |
 | `LIVE_BATCH_SIZE`, `LIVE_WINDOW_POSTS` | Live batch size (500) and maximum rolling window (25,000); batch size must not exceed the window |
 | `CHAT_JUDGE_TIMEOUT_S` | Time budget for the contextual judge, default 60 seconds; an existing `.env` value overrides it |
+| `CHAT_ASSESSMENT_MAX_TOKENS` | Maximum output-token budget for structured content and spread assessments (default 32,768; set lower if the endpoint requires it) |
 
 `.env.example` lists every setting with its default. Keep a warm Verda replica for
 both models in production: if the Lightning judge does not answer within
@@ -70,7 +72,18 @@ when viewers disconnect, until the finite source is exhausted or the server
 stops. Reloading reconnects to that run. Use one Uvicorn worker, protect the site
 with authentication and rate limits, and expect LLM and CPU/GPU usage: opening
 the page can start a long processing job. On error, fix the configuration and
-restart the server; restart also resets the in-memory window and dataset cursor.
+restart the server; processing resumes after the last completed batch.
+
+The small `live_progress.json` checkpoint and its lock file live in `DATA_DIR`,
+which must be persistent across container restarts. The checkpoint pins the
+dataset commit, even if `main` changes later. A different `LIVE_DATASET` or
+`LIVE_DATASET_REVISION` requires a separate data folder. A batch interrupted
+before its checkpoint can be processed again. Existing installations have no
+saved cursor, so the first run after this update starts at the beginning once;
+the previous in-memory position cannot be recovered. The source is a finite
+historical dataset: after exhaustion it stays complete and does not restart.
+The rolling window is not persisted, so its groups disappear on server restart,
+including when restarting after the source has been exhausted.
 
 Each batch is embedded and grouped independently using HDBSCAN on normalized
 embeddings. Lightning assesses each group with the same prompt and rules as the
@@ -220,10 +233,13 @@ it never weakens the baseline to force a positive.
    this spread verdict is capped without group evidence. It never lowers the
    content assessment.
 6. Super answers from both assessments, leading with content and concrete evidence.
-   Structured assessments disable thinking and allow at most three attempts,
-   with one shared time budget per assessment. Truncation increases the output
-   budget from 2,048 to 4,096 to 8,192; truncated JSON is never accepted. An
-   exhausted or unavailable assessment is explicitly reported, never invented.
+   Structured assessments request thinking disabled and share one time budget per
+   assessment. Truncation can increase the output budget from 2,048 up to
+   `CHAT_ASSESSMENT_MAX_TOKENS` (32,768 by default) over at most five attempts;
+   other invalid responses allow at most three attempts. Truncated JSON is never
+   accepted. A timeout, unsupported output budget, or provider ignoring the
+   reasoning setting can still make an assessment unavailable; it is explicitly
+   reported, never invented.
 
 The public endpoint is guarded: 20 chat requests per minute in total, 2 at a time,
 and a body size limit (also set in the `Caddyfile`).

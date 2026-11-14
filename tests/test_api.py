@@ -20,9 +20,13 @@ def test_read_only_dashboard_api_reads_fixture_artifacts(tmp_path, monkeypatch):
     with TestClient(api.app) as client:
         assert client.get("/api/health").json() == {"status": "ok"}
         for page in ("/", "/explore", "/live"):
-            assert client.get(page).status_code == 200
+            response = client.get(page)
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "no-cache"
         for asset in ("map.js", "group-card.js", "explore.js", "live.js", "menu.js", "styles.css"):
-            assert client.get(f"/assets/{asset}").status_code == 200
+            response = client.get(f"/assets/{asset}")
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "no-cache"
         for weight in ("Regular", "SemiBold"):
             font = client.get(f"/assets/fonts/JetBrainsMono-{weight}.woff2")
             assert font.status_code == 200

@@ -371,9 +371,30 @@ def test_structured_assessments_recover_from_truncation(kind):
 
 
 def test_judge_does_not_accept_perpetually_truncated_json():
-    client = client_returning(*(completion(json.dumps(verdict()), "length") for _ in range(3)))
-    with pytest.raises(JudgeError, match="3 attempts.*CompletionTokenLimitError"):
+    client = client_returning(*(completion(json.dumps(verdict()), "length") for _ in range(5)))
+    with pytest.raises(JudgeError, match="32768-token output limit"):
         asyncio.run(judge_item(client, "judge", 20, "text"))
+    assert [call.kwargs["max_tokens"] for call in client.chat.completions.create.call_args_list] == [
+        2048, 4096, 8192, 16384, 32768,
+    ]
+
+
+def test_judge_recovers_after_previous_8192_token_ceiling():
+    client = client_returning(
+        *(completion('{"label":', "length") for _ in range(3)),
+        json.dumps(verdict()),
+    )
+    result, _ = asyncio.run(judge_item(client, "judge", 20, "text"))
+    assert result.label == verdict()["label"]
+    assert [call.kwargs["max_tokens"] for call in client.chat.completions.create.call_args_list] == [
+        2048, 4096, 8192, 16384,
+    ]
+
+
+def test_judge_respects_configured_token_ceiling():
+    client = client_returning(*(completion('{"label":', "length") for _ in range(3)))
+    with pytest.raises(JudgeError, match="8192-token output limit"):
+        asyncio.run(judge_item(client, "judge", 20, "text", 8192))
     assert client.chat.completions.create.await_count == 3
 
 
