@@ -49,7 +49,7 @@ cleanup:
 
 # On the VPS: remove old image layers, build cache and the unused Qdrant service.
 vps-clean:
-	docker compose rm -sf qdrant
+	docker compose --profile offline rm -sf qdrant
 	docker image prune -f
 	docker builder prune -f
 

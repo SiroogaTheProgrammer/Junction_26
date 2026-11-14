@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     live_dataset_revision: str = "main"
     live_window_posts: int = Field(default=50_000, ge=1)
     live_batch_size: int = Field(default=500, ge=25, le=5000)
+    live_pipeline_batches: int = Field(default=4, ge=1, le=8)
     live_min_cluster_size: int = Field(default=10, ge=2)
     live_min_samples: int = Field(default=3, ge=1)
     storage_cleanup: bool = True

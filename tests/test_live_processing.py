@@ -532,3 +532,255 @@ def test_real_live_analyzer_produces_viewable_sample_and_group(tmp_path, monkeyp
     assert group["cluster"]["label"] == parsed.label
     assert group["cluster"]["burstiness_reliable"] is False
     assert "<post id=" in request.await_args.args[2]
+
+
+@pytest.fixture
+def pipeline_source(tmp_path, monkeypatch):
+    source = [
+        {"did": f"did:example:{i}", "rkey": str(i),
+         "text": f"A sufficiently long unique example post number {i}",
+         "created_at": "2026-01-01T00:00:00Z"}
+        for i in range(125)
+    ]
+    monkeypatch.setattr(live, "_resolve_revision", lambda _: "fixed-revision")
+    monkeypatch.setattr(live, "_source", lambda *_: Dataset.from_list(source).to_iterable_dataset())
+    monkeypatch.setattr(live, "choose_device", lambda _: "cpu")
+    monkeypatch.setattr(live, "load_model", lambda *_: object())
+    monkeypatch.setattr(live, "create_client", lambda _: AsyncMock())
+
+    def group(frame, _model, config, next_id, _vectors):
+        stats = cluster_stats(frame, config)
+        return [({**stats, "stats": stats, "cluster_id": next_id}, frame)]
+
+    monkeypatch.setattr(live, "_group", group)
+    return Settings(
+        _env_file=None, data_dir=tmp_path, llm_api_key="test-key",
+        live_batch_size=25, live_window_posts=50, live_pipeline_batches=4, llm_concurrency=2,
+    )
+
+
+def test_pipeline_overlaps_batches_but_bounds_preparation_and_requests(pipeline_source, monkeypatch):
+    prepared = []
+    peak = active = 0
+    original_group = live._group
+    checkpoints = []
+    original_write = live.write_json
+
+    def write(path, data):
+        original_write(path, data)
+        if data["scanned"]:
+            checkpoints.append((data["scanned"], data["processed"]))
+
+    monkeypatch.setattr(live, "write_json", write)
+
+    async def verify():
+        nonlocal peak, active
+        loop = asyncio.get_running_loop()
+        four_prepared, two_requests, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        def group(frame, *args):
+            result = original_group(frame, *args)
+            prepared.append(int(frame["post_id"].iloc[0]))
+            if len(prepared) == 4:
+                loop.call_soon_threadsafe(four_prepared.set)
+            return result
+
+        async def assess(semaphore, _client, _settings, cluster, *_args):
+            nonlocal peak, active
+            async with semaphore:
+                active += 1
+                peak = max(peak, active)
+                if active == 2:
+                    two_requests.set()
+                try:
+                    await release.wait()
+                    return {"status": "ok", "parsed": _analysis("low").model_dump(), "sample": []}
+                finally:
+                    active -= 1
+
+        monkeypatch.setattr(live, "_group", group)
+        monkeypatch.setattr(live, "_analyze_one", assess)
+        processor = live.LiveProcessor(pipeline_source)
+        task = asyncio.create_task(processor.run())
+        try:
+            await asyncio.wait_for(four_prepared.wait(), 5)
+            await asyncio.wait_for(two_requests.wait(), 5)
+            assert prepared == [0, 25, 50, 75]
+            assert processor.scanned == processor.processed == 0
+            assert peak == 2
+        finally:
+            release.set()
+            await asyncio.wait_for(task, 5)
+        assert processor.status == "complete"
+        assert processor.processed == processor.scanned == 125
+        assert processor.retained == 50
+        assert peak == 2 and active == 0
+
+    asyncio.run(verify())
+    assert checkpoints == [(25, 25), (50, 50), (75, 75), (100, 100), (125, 125), (125, 125)]
+
+
+def test_pipeline_commits_in_source_order_when_later_reviews_finish_first(pipeline_source, monkeypatch):
+    finished = []
+    checkpoints = []
+    original_write = live.write_json
+
+    def write(path, data):
+        original_write(path, data)
+        if data["scanned"]:
+            checkpoints.append(data["scanned"])
+
+    monkeypatch.setattr(live, "write_json", write)
+
+    async def verify():
+        later_done = asyncio.Event()
+
+        async def assess(semaphore, _client, _settings, cluster, posts, *_args):
+            first = int(posts["post_id"].iloc[0])
+            async with semaphore:
+                if first == 0:
+                    await asyncio.wait_for(later_done.wait(), 5)
+                else:
+                    later_done.set()
+                finished.append(first)
+                return {"status": "ok", "parsed": _analysis("low").model_dump(), "sample": []}
+
+        monkeypatch.setattr(live, "_analyze_one", assess)
+        processor = live.LiveProcessor(pipeline_source)
+        await asyncio.wait_for(processor.run(), 5)
+        assert processor.status == "complete"
+        assert finished[0] != 0
+        assert sorted(finished) == [0, 25, 50, 75, 100]
+        assert checkpoints == [25, 50, 75, 100, 125, 125]
+
+    asyncio.run(verify())
+
+
+def test_pipeline_cancellation_keeps_only_committed_cursor_and_resumes(pipeline_source, monkeypatch):
+    seen = []
+    active = 0
+    original_write = live.write_json
+
+    async def verify():
+        nonlocal active
+        committed, blocked = asyncio.Event(), asyncio.Event()
+
+        def write(path, data):
+            original_write(path, data)
+            if data["scanned"] == 25:
+                committed.set()
+
+        async def assess(semaphore, _client, _settings, cluster, posts, *_args):
+            nonlocal active
+            first = int(posts["post_id"].iloc[0])
+            seen.append(first)
+            async with semaphore:
+                active += 1
+                try:
+                    if first:
+                        blocked.set()
+                        await asyncio.Event().wait()
+                    return {"status": "ok", "parsed": _analysis("low").model_dump(), "sample": []}
+                finally:
+                    active -= 1
+
+        monkeypatch.setattr(live, "write_json", write)
+        monkeypatch.setattr(live, "_analyze_one", assess)
+        processor = live.LiveProcessor(pipeline_source)
+        processor.start()
+        await asyncio.wait_for(committed.wait(), 5)
+        await asyncio.wait_for(blocked.wait(), 5)
+        await processor.close()
+        assert active == 0
+        saved = live.read_json(processor.checkpoint_path)
+        assert saved["scanned"] == saved["processed"] == 25
+        assert not saved["complete"]
+
+        replay = []
+
+        async def finish(_semaphore, _client, _settings, cluster, posts, *_args):
+            replay.extend(posts["post_id"].tolist())
+            return {"status": "ok", "parsed": _analysis("low").model_dump(), "sample": []}
+
+        monkeypatch.setattr(live, "_analyze_one", finish)
+        resumed = live.LiveProcessor(pipeline_source)
+        await asyncio.wait_for(resumed.run(), 5)
+        assert resumed.status == "complete"
+        assert resumed.resumed_from == 25
+        assert sorted(replay) == list(range(25, 125))
+        assert resumed.processed == resumed.scanned == 125
+
+    asyncio.run(verify())
+
+
+def test_cpu_cancellation_waits_for_source_thread_to_finish():
+    import threading
+
+    async def verify():
+        loop = asyncio.get_running_loop()
+        started, finished = asyncio.Event(), asyncio.Event()
+        release = threading.Event()
+
+        def work():
+            loop.call_soon_threadsafe(started.set)
+            release.wait(timeout=5)
+            loop.call_soon_threadsafe(finished.set)
+
+        task = asyncio.create_task(live._cpu(work))
+        await asyncio.wait_for(started.wait(), 5)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert finished.is_set()
+
+    asyncio.run(verify())
+
+
+def test_batch_and_pattern_reviews_share_the_real_analyzers_32_request_limit(tmp_path, monkeypatch):
+    settings = Settings(_env_file=None, data_dir=tmp_path, llm_concurrency=32)
+    posts = pd.DataFrame({
+        "post_id": range(10), "text": [f"A sufficiently long post number {i}" for i in range(10)],
+        "author": [f"author-{i}" for i in range(10)],
+        "created_at": pd.date_range("2026-01-01", periods=10, freq="min", tz="UTC"),
+    })
+    stats = cluster_stats(posts, settings)
+    groups = [({**stats, "stats": stats, "cluster_id": i}, posts) for i in range(40)]
+    baseline = build_baseline([group for group, _ in groups], settings, burstiness_reliable=False)
+
+    async def verify():
+        active = peak = 0
+        full, release = asyncio.Event(), asyncio.Event()
+
+        async def request(*_args):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            if active == 32:
+                full.set()
+            try:
+                await release.wait()
+                parsed = _analysis("low")
+                return parsed.model_dump_json(), parsed, 1
+            finally:
+                active -= 1
+
+        monkeypatch.setattr(analyze, "_request_analysis", request)
+        processor = live.LiveProcessor(settings)
+        semaphore = asyncio.Semaphore(32)
+        # The two assessment sets represent regular groups and rolling-pattern candidates.
+        batches = [asyncio.create_task(processor._assess(part, baseline, object(), semaphore))
+                   for part in (groups[:20], groups[20:])]
+        try:
+            await asyncio.wait_for(full.wait(), 5)
+            assert active == peak == 32
+        finally:
+            release.set()
+            results = await asyncio.gather(*batches)
+        assert sum(map(len, results)) == 40
+        assert all(record["status"] == "ok" for batch in results for record in batch)
+        assert active == 0 and peak == 32
+
+    asyncio.run(verify())

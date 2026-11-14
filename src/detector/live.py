@@ -4,9 +4,12 @@ import fcntl
 import logging
 import threading
 from collections import deque
+from contextlib import aclosing
+from copy import deepcopy
+from dataclasses import dataclass
 from itertools import islice
 from time import perf_counter
-from typing import Any
+from typing import Any, AsyncIterator, Callable, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -18,7 +21,7 @@ from sklearn.cluster import HDBSCAN
 from detector.analyze import _analyze_one
 from detector.chat import Placer
 from detector.config import Settings
-from detector.embedding import choose_device, clean_for_embedding, encode, load_model
+from detector.embedding import VECTOR_SIZE, choose_device, clean_for_embedding, encode, load_model
 from detector.llm import create_client
 from detector.load import prepare_frame
 from detector.io import read_json, write_json
@@ -27,6 +30,29 @@ from detector.rules import behavior_anomaly, review_priority
 from detector.stats import baseline_for, build_baseline, cluster_stats, describe_signals
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
+
+
+async def _cpu(function: Callable[..., T], *args: Any) -> T:
+    """Finish a running thread before releasing the source/model to another run."""
+    task = asyncio.create_task(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+
+
+@dataclass
+class _Batch:
+    source_rows: int
+    scanned: int
+    source_state: dict[str, Any]
+    frame: pd.DataFrame
+    vectors: np.ndarray
+    groups: list[tuple[dict, pd.DataFrame]]
+    baseline: dict[str, Any]
+    assessment: asyncio.Task[list[dict[str, Any]]]
 
 
 class LiveCheckpoint(BaseModel):
@@ -87,6 +113,7 @@ def _group(
         min_samples=min(settings.live_min_samples, len(frame) - 1),
         metric="euclidean",
         cluster_selection_method="leaf",
+        n_jobs=-1,
     ).fit_predict(vectors)
     groups = []
     for label in sorted(set(labels) - {-1}):
@@ -210,6 +237,85 @@ class LiveProcessor:
             "posts_per_second": posts / elapsed if elapsed > 0 else None,
         }
 
+    async def _assess(
+        self, groups: list[tuple[dict, pd.DataFrame]], baseline: dict[str, Any],
+        client: Any, semaphore: asyncio.Semaphore,
+    ) -> list[dict[str, Any]]:
+        tasks = [asyncio.create_task(
+            _analyze_one(semaphore, client, self.settings, group, posts, baseline, False, {}),
+        ) for group, posts in groups]
+        try:
+            return await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _pipeline(
+        self, dataset: Any, model: Any, client: Any, semaphore: asyncio.Semaphore,
+    ) -> AsyncIterator[_Batch]:
+        depth = self.settings.live_pipeline_batches
+        slots = asyncio.Semaphore(depth)
+        queue: asyncio.Queue[_Batch | Exception | None] = asyncio.Queue(maxsize=depth)
+        reviews: set[asyncio.Task[list[dict[str, Any]]]] = set()
+        source = iter(dataset)
+
+        def read_batch() -> tuple[list[dict], dict[str, Any]]:
+            raw = list(islice(source, self.settings.live_batch_size))
+            # Source may advance while an earlier batch is still being assessed.
+            return raw, deepcopy(dataset.state_dict())
+
+        async def produce() -> None:
+            scanned, processed = self.scanned, self.processed
+            try:
+                while True:
+                    await slots.acquire()
+                    raw, state = await _cpu(read_batch)
+                    if not raw:
+                        await queue.put(None)
+                        return
+                    frame = await _cpu(_prepare, raw, self.settings, processed, scanned)
+                    scanned += len(raw)
+                    processed += len(frame)
+                    vectors = await _cpu(self._encode, frame["text"].astype(str).tolist()) if len(frame) else (
+                        np.empty((0, VECTOR_SIZE), dtype=np.float32)
+                    )
+                    if not np.isfinite(vectors).all():
+                        raise ValueError("The live embedding model returned non-finite vectors")
+                    groups = await _cpu(_group, frame, model, self.settings, 0, vectors) if len(frame) else []
+                    # Allocate IDs without awaiting: candidate reviews share this counter.
+                    for group, _ in groups:
+                        group["cluster_id"] = self.group_id
+                        self.group_id += 1
+                    baseline = await _cpu(
+                        lambda: build_baseline([group for group, _ in groups], self.settings, burstiness_reliable=False),
+                    )
+                    assessment = asyncio.create_task(self._assess(groups, baseline, client, semaphore))
+                    reviews.add(assessment)
+                    await queue.put(_Batch(len(raw), scanned, state, frame, vectors, groups, baseline, assessment))
+            except Exception as exc:
+                await queue.put(exc)
+
+        producer = asyncio.create_task(produce())
+        try:
+            while True:
+                batch = await queue.get()
+                if batch is None:
+                    break
+                if isinstance(batch, Exception):
+                    raise batch
+                yield batch
+                reviews.discard(batch.assessment)
+                slots.release()
+        finally:
+            producer.cancel()
+            await asyncio.gather(producer, return_exceptions=True)
+            for task in reviews:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*reviews, return_exceptions=True)
+
     async def run(self) -> None:
         self.status = "starting"
         self.revision += 1
@@ -244,46 +350,43 @@ class LiveProcessor:
                 self.status = "complete"
                 self.revision += 1
                 return
-            dataset = await asyncio.to_thread(_source, self.settings, checkpoint.resolved_revision)
+            dataset = await _cpu(_source, self.settings, checkpoint.resolved_revision)
             if checkpoint.source_state is not None:
                 dataset.load_state_dict(checkpoint.source_state)
-            source = iter(dataset)
-            device = await asyncio.to_thread(choose_device, self.settings.embed_device)
-            model = await asyncio.to_thread(load_model, self.settings, device)
+            device = await _cpu(choose_device, self.settings.embed_device)
+            model = await _cpu(load_model, self.settings, device)
             self.encoder_model = model
             self.status = "running"
             self.revision += 1
-            async with create_client(self.settings) as client:
+            semaphore = asyncio.Semaphore(self.settings.llm_concurrency)
+            logger.info(
+                "Live pipeline: %d in-flight batches of %d source rows, up to %d LLM requests",
+                self.settings.live_pipeline_batches, self.settings.live_batch_size, self.settings.llm_concurrency,
+            )
+            async with create_client(self.settings) as client, aclosing(
+                self._pipeline(dataset, model, client, semaphore),
+            ) as pipeline:
                 while True:
                     batch_started = perf_counter()
-                    raw = await asyncio.to_thread(lambda: list(islice(source, self.settings.live_batch_size)))
-                    if not raw:
+                    try:
+                        batch = await anext(pipeline)
+                    except StopAsyncIteration:
                         checkpoint.complete = True
                         write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
                         self.status = "complete"
                         self.revision += 1
                         break
-                    frame = await asyncio.to_thread(_prepare, raw, self.settings, self.processed, self.scanned)
-                    self.scanned += len(raw)
+                    records = await batch.assessment
+                    frame, vectors, groups, baseline = batch.frame, batch.vectors, batch.groups, batch.baseline
+                    self.scanned = batch.scanned
                     if frame.empty:
-                        checkpoint.source_state = dataset.state_dict()
+                        checkpoint.source_state = batch.source_state
                         checkpoint.scanned = self.scanned
+                        checkpoint.group_id = self.group_id
                         write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
-                        self._record_batch(batch_started, len(raw), 0, 0)
+                        self._record_batch(batch_started, batch.source_rows, 0, 0)
                         self.revision += 1
                         continue
-                    vectors = await asyncio.to_thread(self._encode, frame["text"].astype(str).tolist())
-                    if not np.isfinite(vectors).all():
-                        raise ValueError("The live embedding model returned non-finite vectors")
-                    groups = await asyncio.to_thread(_group, frame, model, self.settings, self.group_id, vectors)
-                    self.group_id += len(groups)
-                    # Individual batches do not provide a reliable dataset-wide time baseline.
-                    baseline = build_baseline([group for group, _ in groups], self.settings, burstiness_reliable=False)
-                    semaphore = asyncio.Semaphore(self.settings.llm_concurrency)
-                    records = await asyncio.gather(*(
-                        _analyze_one(semaphore, client, self.settings, group, posts, baseline, False, {})
-                        for group, posts in groups
-                    ))
                     results = [
                         _result(group, posts, record, baseline, self.settings, "live batch")
                         for (group, posts), record in zip(groups, records, strict=True)
@@ -307,21 +410,20 @@ class LiveProcessor:
                         if key not in self.pattern_ids:
                             self.pattern_ids[key] = self.group_id
                             self.group_id += 1
-                        stats = await asyncio.to_thread(cluster_stats, posts, self.settings)
+                        stats = await _cpu(cluster_stats, posts, self.settings)
                         group = {
                             **stats, "stats": stats, "cluster_id": self.pattern_ids[key],
                             "representative_post_ids": posts["post_id"].head(10).astype(int).tolist(),
                         }
                         candidates.append((key, group, posts))
-                    pattern_records = await asyncio.gather(*(
-                        _analyze_one(semaphore, client, self.settings, group, posts, baseline, False, {})
-                        for _, group, posts in candidates
-                    ))
+                    pattern_records = await self._assess(
+                        [(group, posts) for _, group, posts in candidates], baseline, client, semaphore,
+                    )
                     for (key, group, posts), record in zip(candidates, pattern_records, strict=True):
                         self.pattern_results[key] = _result(
                             group, posts, record, baseline, self.settings, "repeated text across live batches",
                         )
-                    checkpoint.source_state = dataset.state_dict()
+                    checkpoint.source_state = batch.source_state
                     checkpoint.scanned, checkpoint.processed, checkpoint.group_id = self.scanned, self.processed, self.group_id
                     write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
                     ids = frame["post_id"].to_numpy(dtype=np.int64)
@@ -340,7 +442,7 @@ class LiveProcessor:
                     self.index.append((vectors, ids, membership, texts, clouds))
                     while sum(len(batch[1]) for batch in self.index) > self.settings.live_window_posts:
                         self.index.popleft()
-                    self._record_batch(batch_started, len(raw), count, sum(len(posts) for _, posts in groups))
+                    self._record_batch(batch_started, batch.source_rows, count, sum(len(posts) for _, posts in groups))
                     self.revision += 1
         except asyncio.CancelledError:
             raise

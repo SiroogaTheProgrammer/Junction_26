@@ -1,0 +1,12 @@
+# Copy to docker-compose.override.yml on the VPS (that file is not tracked by git,
+# so `git pull` never removes it). Docker Compose merges it automatically.
+# The VPS Traefik only understands full router/service labels; short forms such as
+# traefik.host or traefik.port are ignored and leave the site at "404 page not found".
+services:
+  app:
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whitewall.rule=Host(`whitewall-ai.tech`) || Host(`www.whitewall-ai.tech`)"
+      - "traefik.http.routers.whitewall.entrypoints=websecure"
+      - "traefik.http.routers.whitewall.tls.certresolver=letsencrypt"
+      - "traefik.http.services.whitewall.loadbalancer.server.port=8000"

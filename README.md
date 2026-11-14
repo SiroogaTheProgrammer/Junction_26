@@ -120,8 +120,12 @@ docker compose logs --tail=100 app
 
 Rebuilding restarts the app and clears its in-memory window, but keeps the
 saved cursor when the existing data volume is preserved. Keep the VPS's
-existing Traefik routing and network configuration; the repository's Compose
-file does not configure Hostinger's Traefik automatically. Protect public
+existing Traefik routing and network configuration. Put the Traefik labels in
+`docker-compose.override.yml` (copy
+[docker-compose.override.example.yml](./docker-compose.override.example.yml)),
+not in `docker-compose.yml`: the override file is not tracked by git, so
+`git pull` cannot remove it. Without these labels Traefik answers
+**404 page not found**. Protect public
 access with authentication and appropriate rate limits before exposing it.
 
 ### Keeping the VPS disk from filling up
@@ -161,6 +165,7 @@ automatic cleanup off, set `STORAGE_CLEANUP=false`.
 | Chat says no posts are available | Wait for a batch to finish. Chat needs posts in the current in-memory window. |
 | A model or spread review is unavailable | Check that the corresponding Verda endpoint and key are configured and the deployment is ready. A successful content assessment remains separate. |
 | The stream stopped or the connection was interrupted | Read the displayed reason, correct the configuration, and restart the server; reload to reconnect. |
+| The site shows only `404 page not found` | Traefik has no route to the app: check that `docker-compose.override.yml` with the Traefik labels exists, then run `docker compose up -d app`. |
 | The dataset is exhausted after a restart | The saved cursor reached the end and the old window was not saved. Consult an administrator before starting a separate run; do not delete stored data blindly. |
 
 The processor continues when viewers leave. Restarting clears the current
@@ -195,6 +200,8 @@ unknown for this dataset. The older `author`/`uri` dataset remains supported.
 | `LIVE_DATASET` | Dataset streamed in the live test; defaults to the 15-language Bluesky dataset. `falbanese/US_Trump_2020_social_media` is also supported (use a separate `DATA_DIR`) |
 | `LIVE_DATASET_REVISION` | Dataset revision to resolve on the first run (default `main`); its commit is pinned in the checkpoint |
 | `LIVE_BATCH_SIZE`, `LIVE_WINDOW_POSTS` | Live batch size (500) and maximum rolling window (50,000); batch size must not exceed the window |
+| `LIVE_PIPELINE_BATCHES` | Up to 4 batches in flight (1–8); upcoming batches are prepared while earlier groups await the LLM. Set 1 for serial processing |
+| `LLM_CONCURRENCY` | Shared Live request limit across all batch and swarm reviews (default 8); use 32 for a warm, larger inference deployment |
 | `STORAGE_CLEANUP`, `STORAGE_CLEANUP_HOURS` | Delete data the live view does not need at startup and every 6 hours (default on); see [storage](#keeping-the-vps-disk-from-filling-up) |
 | `LIVE_MIN_CLUSTER_SIZE`, `LIVE_MIN_SAMPLES` | HDBSCAN group size (10) and density requirement (3) for Live and offline topic refinement; offline initial topics use `HDBSCAN_*` settings |
 | `CHAT_JUDGE_TIMEOUT_S` | Time budget for the contextual judge, default 60 seconds; an existing `.env` value overrides it |
@@ -226,6 +233,40 @@ cross-batch repeated-text candidate remain searchable, but that overlapping
 candidate is not itself returned as the related group.
 Source records read include rows later filtered out; processed posts count
 eligible rows after cleaning and per-batch deduplication.
+
+### Faster Live processing on a small VPS
+
+The app prepares upcoming batches while the remote model reviews earlier ones.
+For the dual-H100 inference deployment, start with:
+
+```dotenv
+LLM_CONCURRENCY=32
+LIVE_PIPELINE_BATCHES=4
+LIVE_BATCH_SIZE=500
+LIVE_WINDOW_POSTS=50000
+```
+
+Restart/rebuild the app after changing settings. The startup log confirms the
+pipeline depth, batch size and request cap. Keep one Uvicorn worker: adding
+workers creates competing processors, not a faster shared window. Do not change
+your Traefik override or enable Caddy for this update.
+
+The H100s run the remote LLM; text embedding and grouping still run on the VPS.
+Live clustering can use all available CPU cores. Concurrency is a maximum, not
+a target: the app cannot fill 32 requests when too few groups need review.
+Four batches add up to 2,000 source rows in flight, in memory only, alongside the
+50,000-post completed window. Results and checkpoints are published in source
+order, even when newer requests finish first. Each checkpoint saves that batch's
+cursor, not the latest prefetched cursor, so interrupted work is replayed rather
+than skipped.
+
+Leave batch size and sampling unchanged initially; increasing either changes
+grouping or review costs. If the VPS still has headroom and enough groups exist,
+try `LIVE_PIPELINE_BATCHES=8`; revert to 4 if chat latency or memory pressure
+increases. More concurrency alone cannot guarantee full GPU utilisation.
+The displayed speed measures posts committed per processing interval, including
+waiting for the next ordered batch and its swarm reviews; it is not the
+end-to-end latency of an individual prefetched batch.
 
 The small `live_progress.json` checkpoint and its lock file live in `DATA_DIR`,
 which must be persistent across container restarts. The checkpoint pins the

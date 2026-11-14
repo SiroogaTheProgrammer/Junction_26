@@ -16,3 +16,5 @@ qdrant_storage/
 hf_cache/
 data_backup.tgz
 *.tmp
+# Server-specific Compose settings (e.g. Traefik labels); survives git pull.
+docker-compose.override.yml
