@@ -1,4 +1,4 @@
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 SYSTEM_PROMPT = """You analyse a cluster of social media posts that an embedding model grouped together.
 
@@ -18,6 +18,7 @@ Rules:
 - Write in English whatever the language of the posts.
 - Return one JSON object matching the schema, nothing else.
 - Score the cluster as a whole, not the most extreme post. If posts are mixed, score the dominant content and say so in relevance_reason.
+- Give a readable, plain-language topic label based on the posts. If the subjects are mixed, say so; do not use technical terms or statistics such as "noise", author overlap or cluster identifiers as the topic label.
 - Near-identical text across many authors is a coordination indicator, not proof of bots or a common controller. One dominant author may indicate spam, not a swarm.
 - Respect burstiness reliability: when false, timing cannot support concern or coordination. Concentrated links and hashtags alone are not anomalous.
 - Word limits: label 6, summary 40, relevance_reason 25, explanation 60.

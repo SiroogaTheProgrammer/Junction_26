@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     llm_warmup_timeout_s: int = Field(default=900, gt=0)
     min_analysis_size: int = Field(default=1, ge=1)
     max_analyzed_clusters: int = Field(default=0, ge=0)
-    sample_size: int = Field(default=20, ge=1)
+    sample_size: int = Field(default=50, ge=1)
     relevance_hide_below: float = Field(default=0.35, ge=0, le=1)
     relevance_full_from: float = Field(default=0.65, ge=0, le=1)
     anomaly_percentile: Literal[50, 75, 90] = 90

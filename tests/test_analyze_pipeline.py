@@ -41,7 +41,7 @@ def test_pipeline_persists_records_report_and_uses_cache_without_endpoint(pipeli
     assert len(records) == 2
     for record in records:
         AnalysisRecord.model_validate(record)
-        assert record["prompt_version"] == "v4"
+        assert record["prompt_version"] == "v5"
         assert "display_tier" not in record
         assert record["concern_level_model"] == "high"
         assert record["relevance_model"] == 0.8
@@ -84,7 +84,8 @@ def test_dry_run_ignores_endpoint_and_cache_and_does_not_write(pipeline, capsys)
     asyncio.run(analyze.run(settings, cluster_id=0, dry_run=True))
     output = json.loads(capsys.readouterr().out)
     assert output["cluster_id"] == 0
-    assert len(output["sample"]) == settings.sample_size
+    assert len(output["sample"]) == settings.sample_size == 50
+    assert output["user_prompt"].count("<post id=") == 50
     assert "<posts>" in output["user_prompt"]
     assert "Relevance rubric:" in output["system_prompt"]
     assert output["input_hash"]
@@ -164,6 +165,9 @@ def test_hash_ignores_display_settings_but_covers_sample_text_and_rule_settings(
         return analyze._cluster_input_hash(settings, cluster, posts, document["baseline"])
 
     initial = digest()
+    settings.sample_size = 20
+    assert digest() != initial
+    settings.sample_size = 50
     settings.relevance_hide_below = 0.1
     settings.relevance_full_from = 0.2
     assert digest() == initial

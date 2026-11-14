@@ -49,6 +49,7 @@ embedding model loads.
 | `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | Nemotron Lightning: labels groups and judges contextual spread |
 | `SUPER_LLM_API_KEY`, `SUPER_LLM_BASE_URL`, `SUPER_LLM_MODEL` | Nemotron 3.5 Super VL: assesses original content including images, reads attachments, writes answers |
 | `CHAT_JUDGE` | `lightning` (default) or `super`: model for the separate contextual spread verdict |
+| `SAMPLE_SIZE` | Posts sampled per group for analysis (default 50, or all posts in a smaller group); an explicit `.env` value overrides the default |
 | `HF_DATASET` | Defaults to `itsmebatuhan/bluesky-10m-posts-15-languages`; `--dataset` overrides an older `.env` value |
 | `MIN_REVIEW_PRIORITY` | Current completed groups below this score are dropped (default 1; stale assessments remain visible) |
 | `LIVE_POSTS_PER_SECOND` | Replay speed of the live test (default 120) |
@@ -108,6 +109,18 @@ python -m detector project --data-dir data/clouds-10000 --collection clouds_1000
 
 Restart the server after any of these.
 
+Existing group labels do not change automatically. To refresh them using up to
+50 sampled posts per group, set `SAMPLE_SIZE=50` in the `.env` used by the
+analyzer, then run:
+
+```bash
+python -m detector analyze --data-dir data/clouds-10000 --all-clusters
+```
+
+Use the actual served data directory and restart the server afterward. This
+sends requests to the configured LLM and may take time and incur cost. Older
+assessments remain visible but are marked stale until refreshed.
+
 ## Behaviour and swarm indicators
 
 The [behaviour-statistics spec](./Behaviour%20statistics%20spec.md) is implemented
@@ -130,7 +143,7 @@ and therefore `all`. It never changes group membership.
   marks and examples. Missing image metadata is shown as unknown.
 - `stats_report.json` records flags, triggers, fallback buckets, reliability and
   runtime. New stats hashes mark saved model assessments stale until re-analysis;
-  stale groups remain visible. Analyzer prompt v4 and cache inputs include the
+  stale groups remain visible. Analyzer prompt v5 and cache inputs include the
   selected baseline, aggregate stats, reliability and signals.
 
 Configure `BURST_WINDOW_MIN`, `NEAR_DUP_JACCARD`, `MINHASH_PERM`,

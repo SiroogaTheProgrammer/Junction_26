@@ -99,7 +99,7 @@ def generate() -> None:
     for cluster_id, (topic, body, _, concern, confidence) in enumerate(TOPICS):
         if concern == "not_analysed":
             continue
-        sample_ids = assignments.loc[assignments["cluster_id"].eq(cluster_id), "post_id"].head(10).tolist()
+        sample_ids = assignments.loc[assignments["cluster_id"].eq(cluster_id), "post_id"].head(50).tolist()
         kind, relevance, reason = (
             ("issue_discussion", 0.55, "Mixed opinions about a local public service."),
             ("personal_chatter", 0.1, "Weather updates without a shared public-affairs framing."),

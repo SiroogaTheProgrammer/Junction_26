@@ -91,17 +91,24 @@ function renderVerdict(result) {
   const cloud = placement.nearest_cloud;
   const where = node("p");
   if (cloud) {
-    const hidden = state.rows.get(cloud.cluster_id)?.discarded;
+    const row = state.rows.get(cloud.cluster_id);
+    const hidden = row?.discarded;
     const link = node(hidden ? "span" : "button", cloud.label || `group ${cloud.cluster_id}`, hidden ? "" : "plain");
     if (!hidden) {
       link.type = "button";
       link.addEventListener("click", () => selectCloud(cloud.cluster_id));
     }
-    where.append("closest group: ", link, ` · group priority ${cloud.review_priority}/100${hidden ? " (below display threshold)" : ""}`);
+    const qualifiers = [
+      hidden ? "below display threshold" : null,
+      row?.analysis_stale ? "assessment needs refresh" : null,
+      row && row.status !== "ok" ? `assessment ${words(row.status)}` : null,
+    ].filter(Boolean);
+    where.append("Closest group: ", link, ` · group review priority ${cloud.review_priority}/100${qualifiers.length ? ` (${qualifiers.join("; ")})` : ""}.`);
+    box.append(where, node("p", "The group priority describes the existing group, not this submission. A semantic match alone does not establish shared framing or coordination.", "small"));
   } else {
     where.textContent = "No matching group among the closest posts.";
+    box.append(where);
   }
-  box.append(where);
   box.append(node("p", `content: ${result.content_review?.model || result.models.chat} · spread: ${judge.model}`, "small"));
   return box;
 }
@@ -116,10 +123,13 @@ async function send() {
   say([text, ...files.map((file) => `＋ ${file.name}`)].filter(Boolean).join("\n"), "user");
   input.value = "";
   resize();
-  const pending = say("assessing content and matching groups", "assistant");
-  const cursor = node("span", "_", "cursor");
-  cursor.setAttribute("aria-hidden", "true");
-  pending.append(cursor);
+  const pending = say("", "assistant");
+  const working = node("span", null, "working");
+  const spinner = node("span", null, "spinner");
+  spinner.setAttribute("aria-hidden", "true");
+  working.setAttribute("role", "status");
+  working.append(spinner, "Nemotron is assessing content and matching groups…");
+  pending.append(working);
   try {
     const attachments = await Promise.all(files.map(async (file) => ({ name: file.name, type: file.type, data: await toBase64(file) })));
     const response = await fetch("/api/chat", {
@@ -189,9 +199,9 @@ function setupChat() {
   document.addEventListener("drop", (event) => { if (event.dataTransfer?.files.length) addFiles(event.dataTransfer.files); });
 }
 
-// On wide screens the chat docks to the right and the map centres in the remaining space.
+// On wide screens chat docks left, leaving the right-hand group details clear.
 const docked = matchMedia("(min-width: 1000px)");
-const dock = () => map.setInset(docked.matches ? byId("composer").getBoundingClientRect().width + 40 : 0, docked.matches ? 0 : 210);
+const dock = () => map.setInset(0, docked.matches ? 0 : 210, docked.matches ? byId("composer").getBoundingClientRect().width + 40 : 0);
 docked.addEventListener("change", dock);
 dock();
 

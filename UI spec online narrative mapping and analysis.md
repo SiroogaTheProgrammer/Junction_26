@@ -32,7 +32,7 @@ All colours and sizes are CSS variables in `:root` in `styles.css`. No other col
 | `--concern-none` / `-low` / `-medium` / `-high` | `#6c7078` / `#9a9468` / `#d2a044` / `#d65a4c` | Concern colours |
 | `--radius` / `--radius-input` | `18px` / `22px` | Cards and bubbles / the chat box |
 
-**Typography:** JetBrains Mono, self-hosted woff2 in `web/fonts/` (400 and 600). Title 20 px, body 13 px, small 11 px (never smaller). No CDN assets, so the demo works offline.
+**Typography:** JetBrains Mono, self-hosted woff2 in `web/fonts/` (400 and 600). Title 22 px, body 15 px, small 13 px. No CDN assets, so the demo works offline.
 
 ## 3. Menu (`/`)
 
@@ -51,20 +51,20 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
 ## 5. Explore (`/explore`)
 
 - Groups from the 10,000-post run are loaded on arrival.
-- **Group card:** shared by Explore and Live. Selecting a ball opens a rounded card with thin dividing lines between Overview, Framing, Spread and Example posts. Show count, priority, concern/confidence, summary, explanation, relevance/techniques, spread statistics and up to five sample posts. Fetch examples from the posts endpoint for groups without an analysis sample. Esc closes it.
+- **Group card:** shared by Explore and Live. Selecting a ball opens a rounded right-hand card with thin dividing lines between Overview, Framing, Spread and Example posts. Show count, priority, concern/confidence, summary, explanation, relevance/techniques, spread statistics and up to five sample posts. Fetch examples from the posts endpoint for groups without an analysis sample. Esc or the close control closes it.
 - Put behaviour signal lines before Overview when present. Spread has a
   value/p50/p90 table with above-p90 marks, baseline bucket/fallback disclosure,
   duplicate-author count, largest repeated group, top domain/hashtag and missing
   image metadata shown as unknown. Unreliable burst timing is explicitly excluded
   from flags and priority. Do not equate aggregate anomalies with bot identity.
-- If a saved model assessment predates the current stats hash, show a refresh
+- If a saved model assessment predates the current stats, prompt or sample count, show a refresh
   warning in Overview and the page count. Keep stale groups visible until
   re-analysis. Tooltips include the first signal line when one exists.
 - **Chat box:** one rounded input (22 px radius), nothing else. `＋` attaches files or articles (also drag and drop, or paste), Enter sends, Shift+Enter adds a line. Attached files show as small chips with a `×`.
 - **Replies** are rounded bubbles. Lead with the original content category (including propaganda-style persuasion where supported), content concern/confidence, techniques and quoted or visual evidence. A thin divider separates contextual spread concern. An unavailable spread judge never erases a successful content assessment. Each unavailable assessment is explicitly labelled with the reason.
-- **Match:** show a closest-group link and highlight that ball. No similarity debug numbers, fake coordinates or connection lines. An unmatched item is labelled as such; hidden-group matches are disclosed.
-- **Layout:** from 1000 px wide the chat docks to the bottom right (420 px) and the map centres in the remaining space, so answers never cover the clouds. Below that it sits at the bottom centre.
-- **States:** loading, no artifacts (with the command to run), no groups above threshold, chat unavailable (reason replaces placeholder and input is disabled), request errors (bubble shows the server's reason).
+- **Match:** show a closest-group link and highlight that ball. Explain that its review priority describes the existing group, not the submission, and that matching alone does not establish coordination. No similarity debug numbers, fake coordinates or connection lines. An unmatched item is labelled as such; hidden-group matches are disclosed.
+- **Layout:** from 1000 px wide the chat docks to the bottom left (420 px), while selected group details open on the right. Below that chat sits at the bottom centre.
+- **States:** loading, no artifacts (with the command to run), no groups above threshold, chat unavailable (reason replaces placeholder and input is disabled), request errors (bubble shows the server's reason). Show a spinner and status text while a chat request is running.
 
 ## 6. Live test (`/live`)
 
@@ -79,7 +79,7 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
 
 - Text contrast at least 4.5:1. Colour is never the only signal: labels carry the score and the cards spell the level out.
 - Everything works from the keyboard: balls and links are focusable; Enter or Space selects a ball, Esc closes details, the chat box takes Enter.
-- `prefers-reduced-motion`: no blinking cursor or transitions. There is no idle animation or rotation.
+- `prefers-reduced-motion`: no blinking cursor, spinner rotation or transitions; the working status text remains visible.
 
 ## 8. Implementation rules
 

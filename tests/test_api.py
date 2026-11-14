@@ -123,6 +123,23 @@ def test_stats_metadata_baselines_and_stale_assessments_are_exposed(tmp_path, mo
         assert client.get("/api/clusters/5").json()["cluster"]["analysis_stale"] is False
 
 
+def test_prompt_and_sample_changes_mark_assessments_stale(tmp_path, monkeypatch):
+    generate()
+    for name in ("posts.parquet", "assignments.parquet", "clusters.json", "analyses.jsonl"):
+        shutil.copy2(Path(__file__).parent / "fixtures" / name, tmp_path / name)
+    monkeypatch.setattr(api, "settings", Settings(_env_file=None, data_dir=tmp_path))
+    with TestClient(api.app) as client:
+        record = api.app.state.dashboard["analyses"][0]
+        assert not client.get("/api/clusters/0").json()["cluster"]["analysis_stale"]
+        record["prompt_version"] = "v4"
+        assert client.get("/api/clusters/0").json()["cluster"]["analysis_stale"]
+        record["prompt_version"] = api.PROMPT_VERSION
+        record["sample"] = record["sample"][:20]
+        assert client.get("/api/clusters/0").json()["cluster"]["analysis_stale"]
+        row = client.get("/api/clusters/0").json()["cluster"]
+        assert not row["discarded"]
+
+
 @pytest.mark.parametrize("corruption", ["membership", "nan", "duplicate", "columns"])
 def test_projection_cannot_silently_display_mismatched_data(tmp_path, monkeypatch, corruption):
     generate()

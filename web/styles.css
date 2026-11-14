@@ -25,9 +25,9 @@
   --concern-medium: #d2a044;
   --concern-high: #d65a4c;
   --font: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --body-size: 13px;
-  --small-size: 11px;
-  --title-size: 20px;
+  --body-size: 15px;
+  --small-size: 13px;
+  --title-size: 22px;
   --radius: 18px;
   --radius-input: 22px;
   --edge: 20px;
@@ -35,7 +35,7 @@
   --hairline: 1px;
   --focus-width: 2px;
   --chat-width: 680px;
-  --card-width: 340px;
+  --card-width: 380px;
   --menu-width: 620px;
   --dock-width: 420px;
   --glass: color-mix(in srgb, var(--surface) 86%, transparent);
@@ -126,7 +126,7 @@ button, textarea { font: inherit; color: inherit; }
 .card {
   position: absolute;
   top: 48px;
-  left: var(--edge);
+  right: var(--edge);
   z-index: 3;
   width: min(var(--card-width), calc(100% - 2 * var(--edge)));
   max-height: calc(100% - 260px);
@@ -140,6 +140,8 @@ button, textarea { font: inherit; color: inherit; }
   gap: var(--gap);
 }
 .card h2 { font-size: var(--body-size); font-weight: 600; }
+.card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.card-close { font-size: var(--title-size); line-height: 1; }
 .card p { color: var(--text-2); overflow-wrap: anywhere; }
 .card-section { border-top: var(--hairline) solid var(--border); padding-top: 12px; display: grid; gap: var(--gap); }
 .card h3 { font-size: var(--small-size); font-weight: 600; color: var(--text-3); }
@@ -181,6 +183,9 @@ button, textarea { font: inherit; color: inherit; }
 .msg.user { align-self: flex-end; border-bottom-right-radius: 6px; }
 .msg.assistant { align-self: flex-start; border-bottom-left-radius: 6px; }
 .msg.error { color: var(--concern-high); }
+.working { display: flex; align-items: center; gap: 10px; }
+.spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--border); border-top-color: var(--text); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .msg .verdict { padding-top: 6px; border-top: var(--hairline) solid var(--border); display: grid; gap: 4px; font-size: var(--small-size); color: var(--text-2); }
 .msg .verdict strong { color: var(--text); font-weight: 600; }
 .msg .verdict .plain { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
@@ -217,10 +222,10 @@ button, textarea { font: inherit; color: inherit; }
 .status strong { color: var(--text); font-size: var(--title-size); font-weight: 600; letter-spacing: -.04em; }
 
 @media (min-width: 1000px) {
-  .chat { left: auto; right: var(--edge); transform: none; width: var(--dock-width); }
+  .chat { left: var(--edge); right: auto; transform: none; width: var(--dock-width); }
   .thread { max-height: 64vh; }
   .msg { max-width: 100%; }
-  .submission-note { bottom: var(--edge); max-width: calc(100% - var(--dock-width) - 3 * var(--edge)); }
+  .submission-note { left: calc(var(--dock-width) + 2 * var(--edge)); bottom: var(--edge); max-width: calc(100% - var(--dock-width) - 3 * var(--edge)); }
 }
 @media (max-width: 700px) {
   :root { --edge: 12px; }

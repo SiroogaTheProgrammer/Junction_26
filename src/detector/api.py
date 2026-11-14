@@ -21,6 +21,7 @@ from detector.embedding import VECTOR_SIZE
 from detector.io import read_json, read_jsonl, require_artifact
 from detector.llm import create_client, create_super_client, super_configured
 from detector.projection import ProjectionModel
+from detector.prompts import PROMPT_VERSION
 from detector.rules import behavior_anomaly, display_tier, review_priority
 from detector.stats import baseline_for, describe_signals, is_organic_looking
 
@@ -218,7 +219,11 @@ def _cluster_status(
     relevance = parsed.get("relevance") if parsed else None
     priority = review_priority(parsed, cluster, baseline, settings.anomaly_percentile)
     organic = is_organic_looking(cluster, baseline)
-    stale = bool(analysis and cluster.get("stats_hash") and analysis.get("stats_hash") != cluster["stats_hash"])
+    stale = bool(analysis and (
+        (cluster.get("stats_hash") and analysis.get("stats_hash") != cluster["stats_hash"])
+        or analysis.get("prompt_version") != PROMPT_VERSION
+        or len(analysis.get("sample") or []) != min(settings.sample_size, int(cluster["size"]))
+    ))
     tier = (
         display_tier(relevance, anomaly.flag, _thresholds()) if relevance is not None
         else "faded" if parsed else status

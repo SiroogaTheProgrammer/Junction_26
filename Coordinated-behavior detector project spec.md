@@ -114,7 +114,7 @@ All settings come from environment variables through `config.py`. Commit `.env.e
 | `LLM_WARMUP_TIMEOUT_S` | `900` | How long analyze waits for a scaled-to-zero endpoint to load the model |
 | `MIN_ANALYSIS_SIZE` | `1` | Size cutoff for standalone analysis; `--all-clusters` and `all` bypass it |
 | `MAX_ANALYZED_CLUSTERS` | `0` | Standalone analysis limit; 0 = unlimited; `--all-clusters` and `all` bypass it |
-| `SAMPLE_SIZE` | `20` | Posts sent per cluster: 10 representative, 5 earliest, 5 random |
+| `SAMPLE_SIZE` | `50` | Posts sent per cluster: up to 10 representative, 5 earliest and random posts to fill |
 | `SUPER_LLM_API_KEY` / `SUPER_LLM_BASE_URL` | none | Verda inference key and OpenAI-compatible base URL (ending in `/v1`) of the Nemotron 3.5 Super VL deployment. Chat is off without them |
 | `SUPER_LLM_MODEL` | `nemotron-3.5-super-vl` | Model name the chat endpoint serves |
 | `SUPER_LLM_MAX_TOKENS` / `SUPER_LLM_TIMEOUT_S` | `4096` / `120` | Output cap and per-request timeout for the chat model |
@@ -218,7 +218,7 @@ Command: `python -m detector analyze` (`--force` ignores the cache; `--cluster <
 **Selection and sampling**
 
 - By default label every non-noise cloud; standalone analysis may be capped explicitly with `MIN_ANALYSIS_SIZE`/`MAX_ANALYZED_CLUSTERS`. `--all-clusters` and the full pipeline always process every cloud. Other clouds stay visible as `not_analysed`.
-- Sample `SAMPLE_SIZE` (20) posts per cluster: the 10 `representative_post_ids`, then the 5 earliest posts, then 5 random posts (random seeded with `SEED + cluster_id`), no duplicates. If the cluster is too small, take what exists.
+- Sample `SAMPLE_SIZE` (default 50) posts per cluster: up to 10 `representative_post_ids`, then up to 5 earliest remaining posts, then random posts to fill (seeded with `SEED + cluster_id`), no duplicates. If the cluster is too small, take what exists.
 - Shuffle with the same seed, give ids `p1..pK`; replace URLs with `<url:domain>`, collapse whitespace, cut to 400 characters, then escape `<`, `>` and `&`.
 - `input_hash` covers model id, prompt version, sample ids/text, rounded stats, organic flag and enforced-rule settings. Display thresholds are excluded. Skip unchanged successful results without warming the endpoint.
 
@@ -237,7 +237,7 @@ Token-limit finishes are failures, even if partial content is present. For missi
 or truncated answers, `raw_response` preserves the full completion JSON (including
 finish reason, usage and any reasoning) for debugging.
 
-**System prompt:** version `v4` in `prompts.py`, with the complete relevance rubric plus near-duplicate/multi-account context, size-bucket percentiles and timing reliability. The version and stats hashes invalidate older cached assessments. Political symmetry, dominant-cluster scoring and untrusted-data handling remain.
+**System prompt:** version `v5` in `prompts.py`, with readable topic labels, the complete relevance rubric plus near-duplicate/multi-account context, size-bucket percentiles and timing reliability. The version and stats hashes invalidate older cached assessments. Political symmetry, dominant-cluster scoring and untrusted-data handling remain.
 
 The user template gives each statistic beside its median/p90, followed by escaped posts. The JSON schema is supplied through structured output.
 
@@ -296,7 +296,7 @@ Command: `python -m detector serve` (uvicorn, port 8000; `--data-dir` picks the 
 
 **Review priority** (API-time, 0 to 100): a triage heuristic, not a probability or validated detection quality. Final concern contributes 0/15/39/60 points for none/low/medium/high; insufficient evidence adds zero. For each of duplicate ratio, top author share and burstiness, normalized excess is `max(0, value - baseline) / (1 - baseline)` at the chosen anomaly percentile (zero when the baseline is one). Spread adds `20 * (max(excesses) + mean(excesses))`, up to 40. The API exposes `review_priority` and the full `review_score` breakdown; failed or unanalysed clouds have an explicit `spread_only` partial status. Confidence and relevance stay separate.
 
-**Discarding insignificant clouds.** A cloud is `discarded` when its current analysis succeeded and review priority is below `MIN_REVIEW_PRIORITY` (default 1). Discarded clouds and noise are not drawn but remain stored for matching. Failed, unanalysed and stale-assessment groups are never discarded. `analysis_stale` compares stored/current stats hashes; `/api/meta.n_stale` counts them. Relevance tiers remain available.
+**Discarding insignificant clouds.** A cloud is `discarded` when its current analysis succeeded and review priority is below `MIN_REVIEW_PRIORITY` (default 1). Discarded clouds and noise are not drawn but remain stored for matching. Failed, unanalysed and stale-assessment groups are never discarded. `analysis_stale` compares stats hashes, prompt version and sample count; `/api/meta.n_stale` counts them. Relevance tiers remain available.
 
 **Chat pipeline** (`chat.py`, one request, nothing stored):
 

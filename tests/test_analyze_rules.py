@@ -192,3 +192,18 @@ def test_sampling_is_seeded_unique_and_prioritizes_representatives():
     assert len(set(first["post_id"])) == 10
     assert 15 in first["post_id"].tolist() and 16 in first["post_id"].tolist()
 
+
+def test_default_sampling_covers_fifty_posts_and_small_groups():
+    posts = pd.DataFrame({
+        "post_id": range(100),
+        "created_at": pd.date_range("2025-01-01", periods=100, freq="min", tz="UTC"),
+        "text": [f"post {index}" for index in range(100)],
+    })
+    size = Settings(_env_file=None).sample_size
+    representatives = list(range(60, 70))
+    sample = sample_posts(posts, representatives, size, seed=7)
+    assert size == 50
+    assert len(sample) == sample["post_id"].nunique() == 50
+    assert set(representatives).issubset(sample["post_id"])
+    assert set(range(5)).issubset(sample["post_id"])
+    assert sample_posts(posts.head(12), representatives, size, seed=7)["post_id"].nunique() == 12

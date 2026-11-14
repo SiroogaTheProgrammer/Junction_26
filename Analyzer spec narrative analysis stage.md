@@ -50,7 +50,7 @@ src/detector/
                  #       display_tier(relevance, anomaly, thresholds) -> Tier
   stats.py       # shared behavior_anomaly, baseline_for, describe_signals
   schema.py      # pydantic: Analysis, Claim, Technique, Templating, AnalysisRecord
-  prompts.py     # SYSTEM_PROMPT, USER_TEMPLATE, PROMPT_VERSION = "v4"
+  prompts.py     # SYSTEM_PROMPT, USER_TEMPLATE, PROMPT_VERSION = "v5"
 ```
 
 `rules.py` is shared with the API (for `display_tier`). Everything in it is pure and unit tested.
@@ -108,15 +108,16 @@ Defaults: `RELEVANCE_HIDE_BELOW = 0.35`, `RELEVANCE_FULL_FROM = 0.65`. Both are 
 
 ## 6. Sampling
 
-- `SAMPLE_SIZE` posts (default 20): the 10 `representative_post_ids`, then the 5 earliest, then 5 random (seed `SEED + cluster_id`), no duplicates. Small clusters take what exists.
+- `SAMPLE_SIZE` posts (default 50): up to 10 `representative_post_ids`, up to 5 earliest remaining posts, then seeded random posts to fill the sample (`SEED + cluster_id`), no duplicates. Small clusters take what exists.
 - Shuffle with the same seed, assign ids `p1..pK`.
 - Per post: replace URLs with `<url:domain>`, collapse whitespace, cut to 400 characters, escape `<`, `>` and `&`.
 - Keep the mapping `pid -> post_id` for the record.
 
 ## 7. Prompt
 
-`PROMPT_VERSION = "v4"`. This adds size-aware baselines, near-duplicate author
-counts, signal lines and timing reliability to the earlier v3 narrative prompt.
+`PROMPT_VERSION = "v5"`. This retains v4's size-aware baselines, near-duplicate author
+counts, signal lines and timing reliability, and asks for readable topic labels
+instead of technical cluster descriptions.
 Any change to prompt text bumps the version.
 
 **System prompt**

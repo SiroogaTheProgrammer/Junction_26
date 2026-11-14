@@ -19,7 +19,13 @@ export function createGroupCard(card, select) {
     const tone = ["none", "low", "medium", "high"].includes(parsed?.concern_level) ? parsed.concern_level : "none";
     dot.style.setProperty("--label-color", `var(--concern-${tone})`);
     title.append(dot, parsed?.label || `Group ${cluster.cluster_id}`);
-    card.replaceChildren(title);
+    const header = node("div", null, "card-header");
+    const close = node("button", "×", "plain card-close");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close group details");
+    close.addEventListener("click", () => show(null));
+    header.append(title, close);
+    card.replaceChildren(header);
     const section = (heading) => {
       const element = node("section", null, "card-section");
       element.append(node("h3", heading));
@@ -32,7 +38,7 @@ export function createGroupCard(card, select) {
       signals.append(node("p", "Aggregate indicators for review, not proof of bots or shared control.", "small"));
     }
     const overview = section("Overview");
-    if (cluster.analysis_stale) overview.append(node("p", "Saved model assessment predates these behaviour statistics. Rerun the analyzer before treating its concern as current.", "small"));
+    if (cluster.analysis_stale) overview.append(node("p", "Saved model assessment predates the current statistics, prompt or sample size. Rerun the analyzer before treating its concern as current.", "small"));
     overview.append(node("p", [
       `${cluster.size.toLocaleString()} posts in the dataset`,
       `review priority ${cluster.review_priority}/100`,
