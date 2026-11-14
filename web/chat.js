@@ -29,6 +29,10 @@ function renderChips() {
 }
 
 function addFiles(list) {
+  if (state.busy) {
+    say("Wait for the current request before adding attachments.", "error");
+    return;
+  }
   const limits = state.meta.chat.limits;
   for (const file of list) {
     if (state.files.length >= limits.attachments) {
@@ -90,23 +94,29 @@ function renderVerdict(result) {
   }
   spread.append(node("p", "One item does not establish coordination.", "small"));
   const cloud = placement.nearest_cloud;
-  const group = section(live ? "Related group in preloaded dataset" : "Related group");
+  const group = section(live ? "Related group in the live window" : "Related group");
   if (cloud) {
     const row = state.rows.get(cloud.cluster_id);
-    const hidden = row?.discarded;
-    const link = node(hidden || live ? "span" : "button", cloud.label || `group ${cloud.cluster_id}`, hidden || live ? "" : "plain");
-    if (!hidden && !live) {
+    const hidden = row?.discarded || (live && !row);
+    const link = node(hidden ? "span" : "button", cloud.label || `group ${cloud.cluster_id}`, hidden ? "" : "plain");
+    if (!hidden) {
       link.type = "button";
-      link.addEventListener("click", () => selectCloud(cloud.cluster_id));
+      link.addEventListener("click", () => {
+        if (live && !state.rows.has(cloud.cluster_id)) {
+          link.replaceWith(node("span", `${link.textContent} (no longer visible in the live window)`));
+        } else {
+          selectCloud(cloud.cluster_id);
+        }
+      });
     }
     const qualifiers = [
-      hidden ? "below display threshold" : null,
+      hidden ? (live ? "no longer visible in the live window" : "below display threshold") : null,
       row?.analysis_stale ? "assessment needs refresh" : null,
       row && row.status !== "ok" ? `assessment ${words(row.status)}` : null,
     ].filter(Boolean);
     const where = node("p");
     where.append(link, ` · group concern ${words(cloud.concern_level)}${qualifiers.length ? ` (${qualifiers.join("; ")})` : ""}`);
-    group.append(where, node("p", `${live ? "This match is from the preloaded dataset, not the live balls. " : ""}This is the existing group's concern, not the submitted item's content concern. A match does not establish shared framing.`, "small"));
+    group.append(where, node("p", "This is the existing group's concern, not the submitted item's content concern. A match does not establish shared framing.", "small"));
   } else {
     group.append(node("p", "No matching group among the closest posts."));
   }
@@ -133,7 +143,7 @@ async function send() {
   pending.append(working);
   try {
     const attachments = await Promise.all(files.map(async (file) => ({ name: file.name, type: file.type, data: await toBase64(file) })));
-    const response = await fetch("/api/chat", {
+    const response = await fetch(live ? "/api/live/chat" : "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, attachments, history: state.history.slice(-8) }),
@@ -150,7 +160,7 @@ async function send() {
       { role: "user", content: (text || `Attached: ${files.map((file) => file.name).join(", ")}`).slice(0, 4000) },
       { role: "assistant", content: body.reply.slice(0, 4000) },
     );
-    if (!live) {
+    if (!live || state.rows.has(body.placement.nearest_cloud?.cluster_id)) {
       map.setMarker({
         label: files[0]?.name || "your text",
         cloudId: body.placement.nearest_cloud?.cluster_id,
@@ -159,6 +169,10 @@ async function send() {
   } catch (error) {
     pending.className = "msg assistant error";
     pending.textContent = error.message;
+    input.value = [text, input.value].filter(Boolean).join("\n");
+    state.files.unshift(...files);
+    renderChips();
+    resize();
   } finally {
     state.busy = false;
     byId("thread").scrollTop = byId("thread").scrollHeight;

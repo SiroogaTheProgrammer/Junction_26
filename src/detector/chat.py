@@ -213,7 +213,7 @@ class Placer:
     """Embeds new text and places it among the stored post embeddings."""
 
     def __init__(
-        self, settings: Settings, embeddings: np.ndarray, model: ProjectionModel,
+        self, settings: Settings, embeddings: np.ndarray, model: ProjectionModel | None,
         post_ids: np.ndarray, cluster_ids: np.ndarray,
         encoder: Callable[[str], np.ndarray] | None = None,
     ) -> None:
@@ -260,7 +260,7 @@ class Placer:
                     "similarity": float(similarities[top][clusters == best].mean()),
                 }
         return {
-            "coordinates": [float(value) for value in self.model.transform(vector)[0]],
+            "coordinates": [float(value) for value in self.model.transform(vector)[0]] if self.model else None,
             "nearest": nearest,
             "neighbors": [
                 {"post_id": int(self.post_ids[index]), "cluster_id": int(self.cluster_ids[index]),
@@ -420,7 +420,7 @@ async def run_chat(
         vector = await asyncio.to_thread(placer.embed, placed_text)
     except (OSError, RuntimeError, ValueError) as exc:
         raise ChatUpstreamError(f"The embedding model could not place the text ({exc})") from exc
-    placement = placer.place(vector)
+    placement = await asyncio.to_thread(placer.place, vector)
     nearest = None
     if placement["nearest"]:
         nearest = {**clouds[placement["nearest"]["cluster_id"]], **placement["nearest"]}

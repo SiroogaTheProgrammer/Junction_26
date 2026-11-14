@@ -6,7 +6,7 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import pandas as pd
 import numpy as np
@@ -150,12 +150,7 @@ async def lifespan(app: FastAPI):
     app.state.chat_slots = asyncio.Semaphore(settings.chat_concurrency)
     app.state.chat_times = deque()
     app.state.live = LiveProcessor(settings)
-    try:
-        app.state.dashboard = _load_dashboard_data()
-    except FileNotFoundError as exc:
-        app.state.dashboard = None
-        app.state.artifact_error = str(exc)
-        logger.warning("Dashboard artifacts are not ready: %s", exc)
+    app.state.dashboard = None
     try:
         yield
     finally:
@@ -195,7 +190,7 @@ def _chat_body_limit() -> int:
 
 @app.middleware("http")
 async def limit_chat_body(request: Request, call_next):
-    if request.method == "POST" and request.url.path == "/api/chat":
+    if request.method == "POST" and request.url.path in {"/api/chat", "/api/live/chat"}:
         length = request.headers.get("content-length", "")
         if not length.isdigit():
             return JSONResponse({"detail": "Content-Length is required"}, status_code=411)
@@ -210,8 +205,12 @@ async def limit_chat_body(request: Request, call_next):
 def _data(request: Request) -> dict[str, Any]:
     value = getattr(request.app.state, "dashboard", None)
     if value is None:
-        reason = getattr(request.app.state, "artifact_error", "Dashboard artifacts are unavailable")
-        raise HTTPException(status_code=503, detail=reason)
+        try:
+            value = _load_dashboard_data()
+        except FileNotFoundError as exc:
+            logger.warning("Dashboard artifacts are not ready: %s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        request.app.state.dashboard = value
     return value
 
 
@@ -360,12 +359,12 @@ async def live_processed(request: Request) -> StreamingResponse:
     async def events():
         revision = -1
         while not await request.is_disconnected():
-            snapshot = processor.snapshot()
-            if snapshot["revision"] != revision:
+            if processor.revision != revision:
+                snapshot = processor.snapshot()
                 revision = snapshot["revision"]
                 yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
-            if snapshot["status"] in {"complete", "error"}:
-                break
+                if snapshot["status"] in {"complete", "error"}:
+                    break
             await asyncio.sleep(1)
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={
@@ -421,6 +420,47 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     state = data["chat"]
     if state["error"]:
         raise HTTPException(status_code=503, detail=state["error"])
+    clouds = {}
+    for row in _cluster_rows(data):
+        parsed = (data["analyses"].get(row["cluster_id"]) or {}).get("parsed") or {}
+        clouds[row["cluster_id"]] = {**row, "summary": parsed.get("summary")}
+    lookup = data["post_lookup"]
+    return await _dispatch_chat(payload, request, lambda: (
+        state["placer"], clouds, lambda post_id: str(lookup[post_id].get("text") or ""),
+    ))
+
+
+@app.get("/api/live/chat/status")
+def live_chat_status(request: Request) -> dict[str, Any]:
+    configured = super_configured(settings)
+    return {
+        "chat": {
+            "available": configured,
+            "error": None if configured else "Set SUPER_LLM_API_KEY and SUPER_LLM_BASE_URL to enable chat.",
+            "limits": {"attachments": settings.chat_max_attachments,
+                       "attachment_mb": settings.chat_max_attachment_mb, "message_chars": 8000},
+        },
+        "window_posts": sum(len(batch[1]) for batch in request.app.state.live.index),
+    }
+
+
+@app.post("/api/live/chat")
+async def live_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
+    if not super_configured(settings):
+        raise HTTPException(status_code=503, detail="Set SUPER_LLM_API_KEY and SUPER_LLM_BASE_URL to enable chat.")
+    def context():
+        try:
+            placer, clouds, texts = request.app.state.live.chat_context()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return placer, clouds, texts.__getitem__
+    return await _dispatch_chat(payload, request, context)
+
+
+async def _dispatch_chat(
+    payload: ChatRequest, request: Request,
+    context: Callable[[], tuple[Placer, dict, Callable[[int], str]]],
+) -> dict[str, Any]:
     now = time.monotonic()
     times: deque = request.app.state.chat_times
     while times and now - times[0] > 60:
@@ -431,15 +471,10 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
             status_code=429, detail="The demo is busy. Wait a moment and send again.",
             headers={"Retry-After": "15"},
         )
-    times.append(now)
-
-    clouds = {}
-    for row in _cluster_rows(data):
-        parsed = (data["analyses"].get(row["cluster_id"]) or {}).get("parsed") or {}
-        clouds[row["cluster_id"]] = {**row, "summary": parsed.get("summary")}
-    lookup = data["post_lookup"]
     judge_client, judge_missing = None, None
     async with slots, create_super_client(settings) as super_client:
+        placer, clouds, post_text = context()
+        times.append(now)
         if settings.chat_judge == "super":
             judge_client, judge_model = super_client, settings.super_llm_model
         else:
@@ -451,10 +486,10 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
                 judge_missing = "LLM_API_KEY and LLM_BASE_URL for the Lightning judge are not configured"
         try:
             return await run_chat(
-                settings=settings, placer=state["placer"], message=payload.message,
+                settings=settings, placer=placer, message=payload.message,
                 history=[turn.model_dump() for turn in payload.history],
                 attachments=[item.model_dump() for item in payload.attachments],
-                clouds=clouds, post_text=lambda post_id: str(lookup[post_id].get("text") or ""),
+                clouds=clouds, post_text=post_text,
                 super_client=super_client, judge_client=judge_client, judge_model=judge_model,
                 judge_missing=judge_missing,
             )

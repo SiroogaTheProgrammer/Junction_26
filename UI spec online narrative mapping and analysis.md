@@ -5,7 +5,7 @@ Visual and interaction spec for the website. The data and endpoints come from se
 ## 1. Direction
 
 - **Feel:** super minimalist. Group balls fill the page. No banners, no toolbars, no boxed controls, no panels that are always open.
-- **Pages:** a menu and a unified Live analysis view with streaming groups and chat. The existing Explore route remains available for the preloaded dataset.
+- **Pages:** a menu and a unified Live analysis view with streaming groups and chat. Legacy Explore remains available at its direct URL.
 - **Unit of display:** one ball per group of similar posts. Ball area represents post count; colour represents group concern.
 
 **Copy rules (honesty is judged)**
@@ -70,12 +70,12 @@ Left-aligned column, at most 620 px wide: title, tagline, four numbered sentence
 ## 6. Live test (`/live`)
 
 - The ball view starts a shared dataset-stream processor via `GET /api/live/processed`. New batches are embedded, grouped and assessed independently. Separate exact-text candidates spanning at least two batches and three accounts are assessed across the rolling window; they overlap batch groups and are not proof of coordination.
-- The right-hand dock contains the shared Super chat and live group details, with the thread and group details mutually exclusive. Chat matching still uses the preloaded dataset, not the live balls; disclose this in the composer and results, and never link a preloaded group ID to a live group.
+- The right-hand dock contains Super chat and live group details, with the thread and group details mutually exclusive. Chat matches against a snapshot of the retained live posts, including ungrouped posts. A related group is linked only while it is still visible; a match may expire while the request runs.
 - The rolling window holds at most 50,000 eligible posts by default and evicts whole batches. At most 60 highest-priority groups are shown. Live clustering defaults to a minimum of 10 posts and 3 density samples; batch-local groups below the review threshold remain hidden.
-- **Bottom left:** the six highest-priority visible groups. **Bottom right:** processed and retained counts, configured batch size, last completed batch's eligible posts, grouped posts, source rows, elapsed time and posts per second, source rows scanned, group counts (including below-threshold groups) and analysis failures. Batch timing covers reading through checkpointing; model startup is excluded, and the last batch metrics reset on restart.
+- **Top centre:** retained count and last-batch speed, sized like the menu link. Speed colour interpolates from red at 0 to green at 20 posts/s and is not a performance target; missing speeds remain neutral. **Bottom:** processed post count and configured batch size in small text. An optional Details disclosure shows the dataset, eligible and grouped posts, source records, elapsed time, scanned records and group counts. Analysis failures remain visible even when details are closed. Batch timing covers reading through checkpointing; model startup is excluded, and the last batch metrics reset on restart.
 - When no bubbles are visible, distinguish between no groups found and all groups being below the review threshold.
-- Show the dataset and the source row count resumed from. A persisted cursor resumes after the last completed batch, but the rolling window is in memory only. If a completed run is restarted, explain why its previous groups are no longer displayed.
-- Corner text states that this is historical simulated traffic, not a live feed. The card displays live batch statistics and examples. Errors are explicit; restart the server to retry after fixing the cause.
+- Show the dataset and source record count resumed from in Details. A persisted cursor resumes after the last completed batch, but the rolling window is in memory only. If a completed run is restarted, explain why its previous groups are no longer displayed.
+- The menu and Details identify the historical source. The card displays live batch statistics and examples. Errors are explicit; restart the server to retry after fixing the cause.
 
 ## 7. Accessibility and motion
 

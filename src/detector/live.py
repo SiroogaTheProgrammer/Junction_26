@@ -2,6 +2,7 @@
 import asyncio
 import fcntl
 import logging
+import threading
 from collections import deque
 from itertools import islice
 from time import perf_counter
@@ -15,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sklearn.cluster import HDBSCAN
 
 from detector.analyze import _analyze_one
+from detector.chat import Placer
 from detector.config import Settings
 from detector.embedding import choose_device, clean_for_embedding, encode, load_model
 from detector.llm import create_client
@@ -70,11 +72,14 @@ def _prepare(raw: list[dict], settings: Settings, first_id: int) -> pd.DataFrame
     return frame
 
 
-def _group(frame: pd.DataFrame, model: Any, settings: Settings, next_id: int) -> list[tuple[dict, pd.DataFrame]]:
+def _group(
+    frame: pd.DataFrame, model: Any, settings: Settings, next_id: int, vectors: np.ndarray | None = None,
+) -> list[tuple[dict, pd.DataFrame]]:
     if len(frame) < settings.live_min_cluster_size:
         return []
-    texts = ["query: " + clean_for_embedding(text) for text in frame["text"]]
-    vectors = encode(model, texts, settings.embed_batch, progress=False)
+    if vectors is None:
+        texts = ["query: " + clean_for_embedding(text) for text in frame["text"]]
+        vectors = encode(model, texts, settings.embed_batch, progress=False)
     if not np.isfinite(vectors).all():
         raise ValueError("The live embedding model returned non-finite vectors")
     labels = HDBSCAN(
@@ -103,9 +108,11 @@ def _result(
     parsed = record.get("parsed")
     anomaly = behavior_anomaly(group, baseline, settings.anomaly_percentile)
     priority = review_priority(parsed, group, baseline, settings.anomaly_percentile)
-    lookup = posts.set_index("post_id").to_dict(orient="index")
+    sample_ids = {item["post_id"] for item in record.get("sample", [])}
+    sampled = posts.loc[posts["post_id"].isin(sample_ids), ["post_id", "text"]]
+    lookup = dict(zip(sampled["post_id"], sampled["text"], strict=True))
     sample = [{
-        **item, "text": lookup[item["post_id"]]["text"],
+        **item, "text": lookup[item["post_id"]],
     } for item in record.get("sample", []) if item["post_id"] in lookup]
     row = {
         **group, "status": record["status"],
@@ -143,6 +150,31 @@ class LiveProcessor:
         self.patterns = RollingPatterns()
         self.pattern_ids: dict[str, int] = {}
         self.pattern_results: dict[str, dict[str, Any]] = {}
+        self.index: deque[tuple[np.ndarray, np.ndarray, np.ndarray, dict[int, str], dict[int, dict]]] = deque()
+        self.encoder_model: Any | None = None
+        self.encoder_lock = threading.Lock()
+
+    def _encode(self, texts: list[str]) -> np.ndarray:
+        with self.encoder_lock:
+            if self.encoder_model is None:
+                raise RuntimeError("The live embedding model is not ready")
+            return encode(
+                self.encoder_model, ["query: " + clean_for_embedding(text) for text in texts],
+                self.settings.embed_batch, progress=False,
+            )
+
+    def chat_context(self) -> tuple[Placer, dict[int, dict], dict[int, str]]:
+        batches = list(self.index)
+        if not batches:
+            raise RuntimeError("No processed posts in the live window yet. Wait for a batch to finish.")
+        vectors = np.concatenate([batch[0] for batch in batches])
+        post_ids = np.concatenate([batch[1] for batch in batches])
+        cluster_ids = np.concatenate([batch[2] for batch in batches])
+        texts = {key: value for batch in batches for key, value in batch[3].items()}
+        clouds = {key: value for batch in batches for key, value in batch[4].items()}
+        placer = Placer(self.settings, vectors, None, post_ids, cluster_ids,
+                        encoder=lambda text: self._encode([text])[0])
+        return placer, clouds, texts
 
     def start(self) -> None:
         if self.task is None:
@@ -218,6 +250,7 @@ class LiveProcessor:
             source = iter(dataset)
             device = await asyncio.to_thread(choose_device, self.settings.embed_device)
             model = await asyncio.to_thread(load_model, self.settings, device)
+            self.encoder_model = model
             self.status = "running"
             self.revision += 1
             async with create_client(self.settings) as client:
@@ -239,7 +272,10 @@ class LiveProcessor:
                         self._record_batch(batch_started, len(raw), 0, 0)
                         self.revision += 1
                         continue
-                    groups = await asyncio.to_thread(_group, frame, model, self.settings, self.group_id)
+                    vectors = await asyncio.to_thread(self._encode, frame["text"].astype(str).tolist())
+                    if not np.isfinite(vectors).all():
+                        raise ValueError("The live embedding model returned non-finite vectors")
+                    groups = await asyncio.to_thread(_group, frame, model, self.settings, self.group_id, vectors)
                     self.group_id += len(groups)
                     # Individual batches do not provide a reliable dataset-wide time baseline.
                     baseline = build_baseline([group for group, _ in groups], self.settings, burstiness_reliable=False)
@@ -288,6 +324,22 @@ class LiveProcessor:
                     checkpoint.source_state = dataset.state_dict()
                     checkpoint.scanned, checkpoint.processed, checkpoint.group_id = self.scanned, self.processed, self.group_id
                     write_json(self.checkpoint_path, checkpoint.model_dump(mode="json"))
+                    ids = frame["post_id"].to_numpy(dtype=np.int64)
+                    membership = np.full(len(frame), -1, dtype=np.int64)
+                    positions = {post_id: index for index, post_id in enumerate(ids)}
+                    for group, posts in groups:
+                        for post_id in posts["post_id"]:
+                            membership[positions[int(post_id)]] = group["cluster_id"]
+                    texts = dict(zip(ids.tolist(), frame["text"].astype(str), strict=True))
+                    clouds = {
+                        item["cluster"]["cluster_id"]: {
+                            **item["cluster"],
+                            "summary": (item["analysis"].get("parsed") or {}).get("summary"),
+                        } for item in results
+                    }
+                    self.index.append((vectors, ids, membership, texts, clouds))
+                    while sum(len(batch[1]) for batch in self.index) > self.settings.live_window_posts:
+                        self.index.popleft()
                     self._record_batch(batch_started, len(raw), count, sum(len(posts) for _, posts in groups))
                     self.revision += 1
         except asyncio.CancelledError:

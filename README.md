@@ -1,47 +1,124 @@
 # Online narrative mapping
 
-Randomly sample **10,000** posts from the configured Bluesky snapshot, embed them
-with multilingual E5 (384 dimensions), group them with UMAP (5D) + HDBSCAN, then
-ask **Nemotron Lightning on Verda** to label and assess every detected cloud from
-a sample of its posts and its spread statistics. Ungrouped posts stay as noise.
+This demo helps people explore patterns in public posts and ask AI to assess
+their own text, images and documents. It **simulates** incoming posts using a
+historical dataset; it is not connected to a live social-media feed.
 
-The default dataset is
-[`itsmebatuhan/bluesky-10m-posts-15-languages`](https://huggingface.co/datasets/itsmebatuhan/bluesky-10m-posts-15-languages):
-10.1 million posts, 15 languages, collected August 9-12, 2026. Its published
-**CC BY-NC-SA 4.0** licence requires attribution, non-commercial use and
-share-alike terms; obtain appropriate permission before commercial hosting.
-The loader maps `did` to author and combines `did` + `rkey` into a post URI.
-Language and reply metadata are retained; image metadata is **unknown** because
-this dataset does not supply it. The older `author`/`uri` dataset remains supported.
+## Find your way
 
-The website has three pages:
+- [Use the website](#use-the-website)
+- [Understand the results](#understand-the-results)
+- [Start it on your computer](#start-it-on-your-computer)
+- [Troubleshooting](#troubleshooting)
+- [Technical details and settings](#technical-details-and-settings)
 
-- **`/`** explains the demo and links to the two modes.
-- **`/explore`** shows groups from the preloaded 10,000-post run as balls, with a
-  rounded chat box for **Nemotron 3.5 Super VL**. Send a post, a file or an
-  article: Super assesses the original content, and a separate judge reviews its
-  relationship to the closest group. Select a ball for divided detail sections
-  and up to five example posts.
-- **`/live`** streams the full configured dataset in batches, embeds the posts,
-  forms new groups and calls the configured LLM to assess them. This simulates
-  incoming traffic; the dataset is a finite historical snapshot, not a live feed.
+## Use the website
 
-Ball **area represents post count**; **colour represents group concern**. Ball
-positions are only a non-overlapping layout, not semantic distance. Groups that
-score **0/100** and ungrouped noise are not drawn. The complete dataset is still
-available for matching; failed and pending groups remain visible.
+1. Open the website and select **Open live analysis**. The first batch can take
+   time to download, process and assess.
+2. Select a ball to see the group's concern level, explanation and example
+   posts. Close the card or focus the chat box to return to the conversation.
+3. Type or paste a message in the box on the right. To include a document or
+   image, use the **+** control. Press **Enter** to send; Shift+Enter adds a line.
+4. Read the separate content and spread assessments. A group match is context,
+   not a verdict on your submission. The AI can make mistakes; check the cited
+   evidence and review important results yourself.
 
-## Open the processed 10,000-post run
+The top shows posts in the current window and the last batch's speed. Speed
+colour ranges from red at 0 to green at 20 posts per second; it is a visual
+scale, not a performance target. The bottom shows processed posts and batch
+size. Open **Details** for more information.
+**Source records read** includes records that were later filtered out; it is
+not the same as the number of processed posts.
+
+## Understand the results
+
+- **A ball is a group of similar posts.** Its size shows the number of posts;
+  its colour shows the group's concern level. Its position on screen has no
+  meaning. Some groups are hidden when their review score is below the display
+  threshold, while failed assessments stay visible.
+- **The rolling window** normally holds up to 50,000 eligible posts. New batches
+  replace the oldest batches. The chat compares your submission with posts in
+  this same window, including posts that have no group.
+- **Two assessments serve different purposes.** Nemotron Super evaluates the
+  submitted material; a separate judge reviews its relationship to nearby
+  posts. A low-concern group does not cancel a concerning content assessment.
+- **A signal is not proof.** Repeated text can be harmless, political discussion
+  is not automatically propaganda, and neither a match nor an AI assessment
+  proves coordination, a bot, falsehood or someone's intent.
+
+Behind the scenes, the app reads posts in batches, turns their text into
+numerical representations, groups similar posts and asks Nemotron Lightning to
+review samples. It also checks for exact repeated text across batches and
+multiple accounts. These overlapping candidates can be missed or be benign;
+they require human review. For chat, Super reads the submitted material and
+its content assessment is kept separate from the spread review.
+
+## Start it on your computer
+
+If someone has already set up the app, open a terminal in the project folder
+and run:
 
 ```bash
-cd ~/Junction_26
 source .venv/bin/activate
-python -m detector serve --data-dir data/clouds-10000 --host 127.0.0.1 --port 8000
+python -m detector serve --data-dir data --host 127.0.0.1 --port 8000
 ```
 
-Open **http://127.0.0.1:8000**. No Qdrant is needed to view it. The chat needs the
-Super VL settings below; the first message takes a few extra seconds while the
-embedding model loads.
+Then open **http://127.0.0.1:8000** in your browser and choose **Open live
+analysis**. Leave the terminal running while you use the website. You do not
+need to run the old 10,000-post pipeline or Qdrant for live analysis.
+
+For a first setup, an administrator needs Python 3.11, internet access and
+working Verda model endpoints. In the project folder, run `make setup`, then
+fill in the Lightning and Super endpoint addresses, model names and keys in
+the `.env` file. The example settings are in [.env.example](./.env.example).
+Keep `.env` private and never share or commit API keys. Start the server with
+the commands above. Processing sends requests to Verda and may incur costs.
+
+### If the app is already running on a VPS
+
+Ask the server administrator to update the project files and rebuild the app
+container from the project directory:
+
+```bash
+docker compose up -d --build app
+docker compose logs --tail=100 app
+```
+
+Rebuilding restarts the app and clears its in-memory window, but keeps the
+saved cursor when the existing data volume is preserved. Keep the VPS's
+existing Traefik routing and network configuration; the repository's Compose
+file does not configure Hostinger's Traefik automatically. Protect public
+access with authentication and appropriate rate limits before exposing it.
+
+## Troubleshooting
+
+| What you see | What to do |
+| --- | --- |
+| The page is waiting for the first batch | Allow time for the dataset and embedding model to load. Check the server terminal if processing stops. |
+| Chat says no posts are available | Wait for a batch to finish. Chat needs posts in the current in-memory window. |
+| A model or spread review is unavailable | Check that the corresponding Verda endpoint and key are configured and the deployment is ready. A successful content assessment remains separate. |
+| The stream stopped or the connection was interrupted | Read the displayed reason, correct the configuration, and restart the server; reload to reconnect. |
+| The dataset is exhausted after a restart | The saved cursor reached the end and the old window was not saved. Consult an administrator before starting a separate run; do not delete stored data blindly. |
+
+The processor continues when viewers leave. Restarting clears the current
+window but resumes from the saved source cursor; an interrupted batch can be
+processed again. The dataset is finite, and an exhausted run does not
+automatically restart. Do not send sensitive material to the hosted models
+unless you are authorized to do so.
+
+## Technical details and settings
+
+<details>
+<summary>For administrators and developers</summary>
+
+The default source is
+[`itsmebatuhan/bluesky-10m-posts-15-languages`](https://huggingface.co/datasets/itsmebatuhan/bluesky-10m-posts-15-languages),
+a historical snapshot of 10.1 million posts in 15 languages. Its **CC BY-NC-SA
+4.0** licence requires attribution, non-commercial use and share-alike terms;
+obtain appropriate permission before commercial hosting. The loader maps `did`
+to author and combines `did` and `rkey` into a post URI; image metadata is
+unknown for this dataset. The older `author`/`uri` dataset remains supported.
 
 ## Settings (`.env`, never committed)
 
@@ -75,10 +152,17 @@ stops. Reloading reconnects to that run. Use one Uvicorn worker, protect the sit
 with authentication and rate limits, and expect LLM and CPU/GPU usage: opening
 the page can start a long processing job. On error, fix the configuration and
 restart the server; processing resumes after the last completed batch.
-Chat placement and its related group still use the preloaded offline artifacts,
-not the live rolling groups; the interface labels this distinction. Chat needs
-those artifacts and the Super endpoint even if the live stream is working.
-The existing `/explore` route remains available to inspect the preloaded groups.
+Chat placement and its related group use the retained live batches, not offline
+artifacts. A request takes a consistent snapshot of the current window; it may
+refer to a group that has since been evicted. Chat needs the Super endpoint and
+at least one completed live batch. A restart clears the in-memory window, so
+chat matching is unavailable until another batch finishes; if the dataset is
+already exhausted, the window cannot be restored from the saved cursor.
+Related-group matching uses batch-local groups; posts that also form a
+cross-batch repeated-text candidate remain searchable, but that overlapping
+candidate is not itself returned as the related group.
+Source records read include rows later filtered out; processed posts count
+eligible rows after cleaning and per-batch deduplication.
 
 The small `live_progress.json` checkpoint and its lock file live in `DATA_DIR`,
 which must be persistent across container restarts. The checkpoint pins the
@@ -117,14 +201,16 @@ analyses. Smaller groups and repeatedly updated candidates can increase model ca
 The existing `/api/live/stream` remains a legacy offline replay API; the new
 page uses `/api/live/processed`.
 
-The live processor retains a rolling index of up to 50,000 eligible posts and
-their in-memory results and samples, evicting whole old batches. It does not write live post
+The live processor retains embeddings, text and results for up to 50,000
+eligible posts in memory, evicting whole old batches. Embeddings alone require
+about 77 MB at 50,000 posts (384 float32 values each); chat snapshots and post
+data need additional memory. It does not write live post
 vectors, samples or analyses to disk or alter the offline dataset/Qdrant.
 Dataset streaming and model libraries can still maintain their own Hugging Face
 metadata/model caches and logs: monitor those separately, and do not delete
 existing files without checking what uses them. Restart loses the live window.
 
-## Run the whole pipeline
+## Legacy offline pipeline (optional)
 
 Python 3.11+ and Qdrant are required.
 
@@ -240,8 +326,9 @@ it never weakens the baseline to force a positive.
    (up to 4 files of 4 MB). Nothing is stored.
 2. A short message is placed as written. For longer text or attachments, Super
    writes a short digest of the material, and that digest is placed.
-3. The text is embedded with the same model as the posts. Its closest group is
-   the one holding most of its 25 nearest posts. Display positions play no role.
+3. The text is embedded with the same model as the posts. A related group must
+   contain at least two of the nearest posts and at least 20% of them. The
+   default neighbourhood is 25 posts. Display positions play no role.
 4. Super VL assesses the **original message, attachment text and images**, not
    just the digest: content category, content concern, techniques, evidence and
    confidence. Categories include propaganda-style persuasion, ordinary political
@@ -277,3 +364,5 @@ and a body size limit (also set in the `Caddyfile`).
 Full contracts: [project spec](./Coordinated-behavior%20detector%20project%20spec.md),
 [analyzer spec](./Analyzer%20spec%20narrative%20analysis%20stage.md),
 [UI spec](./UI%20spec%20online%20narrative%20mapping%20and%20analysis.md).
+
+</details>

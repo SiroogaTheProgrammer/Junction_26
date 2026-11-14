@@ -34,20 +34,21 @@ export function createMap(root, { onSelect = () => {}, labelAfter = 1 } = {}) {
   let selected = null;
   let right = 0;
   let leftInset = 0;
+  let topInset = 0;
   let bottom = 0;
   let submission = null;
 
   function draw() {
     const bounds = root.getBoundingClientRect();
     const width = Math.max(100, bounds.width - leftInset - right - 40);
-    const height = Math.max(100, bounds.height - bottom - 100);
+    const height = Math.max(100, bounds.height - bottom - topInset - 100);
     const left = Math.min(0, ...packed.map((ball) => ball.x - ball.r));
     const top = Math.min(0, ...packed.map((ball) => ball.y - ball.r));
     const spanX = Math.max(1, ...packed.map((ball) => ball.x + ball.r)) - left;
     const spanY = Math.max(1, ...packed.map((ball) => ball.y + ball.r)) - top;
     const scale = Math.min(width / spanX, height / spanY);
     const offsetX = leftInset + 20 + (width - spanX * scale) / 2 - left * scale;
-    const offsetY = 60 + (height - spanY * scale) / 2 - top * scale;
+    const offsetY = 60 + topInset + (height - spanY * scale) / 2 - top * scale;
     for (const ball of packed) {
       const cloud = clouds.get(ball.id);
       const radius = Math.sqrt(cloud.n) * scale;
@@ -120,6 +121,10 @@ export function createMap(root, { onSelect = () => {}, labelAfter = 1 } = {}) {
           cloud.el.querySelector(".bubble-name").textContent = groupLabel(row.label, row.cluster_id);
         }
       }
+      if (submission?.cloudId != null && !incoming.has(submission.cloudId)) {
+        marker.textContent = `${submission.label} · matched group no longer visible`;
+        submission = null;
+      }
       packed = packBubbles(rows.filter((row) => !row.discarded));
       draw();
     },
@@ -131,10 +136,11 @@ export function createMap(root, { onSelect = () => {}, labelAfter = 1 } = {}) {
       }
       draw();
     },
-    setInset(nextRight, nextBottom = 0, nextLeft = 0) {
+    setInset(nextRight, nextBottom = 0, nextLeft = 0, nextTop = 0) {
       right = nextRight;
       bottom = nextBottom;
       leftInset = nextLeft;
+      topInset = nextTop;
       draw();
     },
     select(id) {

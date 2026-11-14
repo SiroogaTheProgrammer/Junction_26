@@ -133,6 +133,7 @@ def test_prompt_and_sample_changes_mark_assessments_stale(tmp_path, monkeypatch)
         shutil.copy2(Path(__file__).parent / "fixtures" / name, tmp_path / name)
     monkeypatch.setattr(api, "settings", Settings(_env_file=None, data_dir=tmp_path))
     with TestClient(api.app) as client:
+        assert client.get("/api/meta").status_code == 200
         record = api.app.state.dashboard["analyses"][0]
         assert not client.get("/api/clusters/0").json()["cluster"]["analysis_stale"]
         record["prompt_version"] = "v4"

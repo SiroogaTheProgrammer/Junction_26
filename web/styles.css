@@ -197,8 +197,8 @@ button, textarea { font: inherit; color: inherit; }
   display: grid;
   gap: 6px;
 }
-.msg.user { align-self: flex-end; border-bottom-right-radius: 6px; }
-.msg.assistant { align-self: flex-start; border-bottom-left-radius: 6px; }
+.msg.user { align-self: flex-end; }
+.msg.assistant { align-self: flex-start; }
 .msg.error { color: var(--concern-high); }
 .working { display: flex; align-items: center; gap: 10px; }
 .spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--border); border-top-color: var(--text); border-radius: 50%; animation: spin .8s linear infinite; }
@@ -234,17 +234,18 @@ button, textarea { font: inherit; color: inherit; }
 .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .composer .hint { color: var(--text-3); font-size: var(--small-size); line-height: 1.8; user-select: none; }
 
-/* Live ranking */
-.live-summary { position: absolute; left: var(--edge); right: var(--edge); bottom: var(--edge); z-index: 2; display: flex; justify-content: space-between; align-items: end; gap: 20px; pointer-events: none; }
+/* Live status */
+.live-overview { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 2; display: flex; flex-wrap: wrap; justify-content: center; column-gap: 18px; width: max-content; max-width: calc(100% - 2 * var(--edge)); font-size: var(--small-size); color: var(--text-3); pointer-events: none; }
+.live-overview span { white-space: nowrap; }
+.speed-coloured { color: hsl(var(--speed-hue) 65% 68%); }
+.live-summary { position: absolute; left: var(--edge); right: var(--edge); bottom: var(--edge); z-index: 2; display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: end; gap: 20px; pointer-events: none; }
 .live-chat .live-summary { right: calc(var(--dock-width) + 2 * var(--edge)); }
-.chat-context { color: var(--text-3); font-size: var(--small-size); }
-.ranking { display: grid; gap: 4px; font-size: var(--small-size); color: var(--text-2); min-width: 0; max-width: 50%; }
-.ranking div { display: grid; grid-template-columns: 6em 1fr auto; gap: 10px; align-items: baseline; transition: opacity 200ms; }
-.ranking b { font-weight: 600; color: var(--text); text-align: right; }
-.ranking span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
-.ranking i { font-style: normal; color: var(--label-color); }
 .status { min-width: 0; text-align: right; font-size: var(--small-size); color: var(--text-3); display: grid; gap: 2px; }
-.status strong { color: var(--text); font-size: var(--title-size); font-weight: 600; letter-spacing: -.04em; }
+.status-warning { color: var(--concern-high); }
+.live-details { position: relative; pointer-events: auto; font-size: var(--small-size); color: var(--text-2); }
+.live-details summary { cursor: pointer; color: var(--text-3); }
+.live-details summary:hover { color: var(--text); }
+.details-content { position: absolute; bottom: calc(100% + 10px); left: 0; width: min(460px, calc(100vw - 2 * var(--edge))); max-height: 35vh; overflow-y: auto; display: grid; gap: 8px; padding: 14px; border: var(--hairline) solid var(--border); border-radius: var(--radius); background: var(--surface); overflow-wrap: anywhere; }
 
 @media (min-width: 1000px) {
   .chat { width: var(--dock-width); }
@@ -258,17 +259,13 @@ button, textarea { font: inherit; color: inherit; }
   .chat .card { max-height: 40vh; }
   .thread { max-height: 36vh; }
   .composer .hint { display: none; }
-  .ranking span { max-width: 22ch; }
-  .live-summary { flex-direction: column; align-items: start; gap: 16px; }
-  .ranking { max-width: 100%; }
-  .status { text-align: left; }
+  .live-overview { top: 46px; gap: 12px; }
+  .live-summary { gap: 12px; }
   .live-chat .live-summary { right: var(--edge); bottom: 150px; }
-  .live-chat .ranking { display: none; }
   .live-chat .status { font-size: 12px; }
 }
 @media (min-width: 701px) and (max-width: 999px) {
   .live-chat .live-summary { right: var(--edge); bottom: 160px; }
-  .live-chat .ranking { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

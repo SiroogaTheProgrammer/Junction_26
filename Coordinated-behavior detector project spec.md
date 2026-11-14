@@ -22,7 +22,7 @@ Detect indicators of coordinated amplification in public social posts. The defau
 | LLM | Nemotron 3.5 Lightning, checkpoint `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4`, self-hosted on Verda | Hybrid Mamba-2 + MoE + attention model, 30B total / 3B active parameters. Served by vLLM on a Verda Serverless Container (OpenAI-compatible API, Verda inference API key), not on the VPS. Only the analyze stage calls it; the dashboard serves stored results (section 10). |
 | Backend | Python 3.11+, FastAPI | Reads pipeline artifacts, no database server besides Qdrant. |
 | Website | Three static pages, vanilla JS ES modules, circular group elements | Menu, Explore (group balls + chat) and Live test. No build step, no third-party scripts. |
-| Chat model | Nemotron 3.5 Super VL (`nemotron-3.5-super-vl`) on Verda | OpenAI-compatible endpoint. Reads the user's request, files, articles and images, and writes the answer. Called only by `POST /api/chat`. |
+| Chat model | Nemotron 3.5 Super VL (`nemotron-3.5-super-vl`) on Verda | OpenAI-compatible endpoint. Reads the user's request, files, articles and images, and writes the answer. Called by the live or legacy chat endpoint. |
 | Deployment | Docker Compose on the Hostinger KVM 2 VPS | 2 vCPU, 8 GB RAM. Public URL on the free domain. |
 
 - The embedding model runs on CPU, so the number of posts is capped by `N_POSTS` (section 4). Benchmark 1,000 posts first and size `N_POSTS` so embedding finishes in under 30 minutes.
@@ -283,7 +283,7 @@ Network-free tests cover all rules/order, thresholds, parsing/truncation, retrie
 
 ## 9. Stage 5: API and website
 
-Command: `python -m detector serve` (uvicorn, port 8000; `--data-dir` picks the artifact folder). It loads `clusters.json`, `analyses.jsonl`, `assignments.parquet`, `posts.parquet`, `projection.parquet`, `projection_model.npz` and `embeddings.npy` into memory at startup, so restart it after rerunning a stage. No auth, same-origin, no CORS. Everything is read-only except `POST /api/chat`, which stores nothing.
+Command: `python -m detector serve` (uvicorn, port 8000; `--data-dir` picks the artifact folder). Live processing and chat do not require offline artifacts. Legacy offline endpoints load artifacts lazily on first use; restart after rerunning an offline stage. No auth, same-origin, no CORS. Chat requests store nothing.
 
 | Endpoint | Returns |
 | --- | --- |
@@ -297,6 +297,7 @@ Command: `python -m detector serve` (uvicorn, port 8000; `--data-dir` picks the 
 | `GET /api/live/stream` | Server-sent events: `start`, then batches `{points, sent, total, clock}` every 250 ms in post-time order, then `done` |
 | `GET /api/live/processed`, `/api/live/clusters/{id}` | Shared streamed-dataset processing snapshots and rolling group details. Semantic groups are batch-local; separate exact-text candidates span batches and overlap them. Memory is bounded by the rolling window. A checkpoint in `DATA_DIR` persists the source cursor and pinned dataset revision; the rolling window itself is not restored after restart. |
 | `POST /api/chat` | JSON `{message, attachments: [{name, type, data(base64)}], history}`. Returns `reply`, `placed_text`, `placed_from`, `placement` (`coordinates`, `nearest_cloud`, `neighbors`), independent `content_assessment` and `content_review` (`model`, `status`, `reason`), contextual `verdict` and `judge` (`model`, `status`, `reason`, `rule_log`), `attachments`, `models` |
+| `GET /api/live/chat/status`, `POST /api/live/chat` | Super configuration and live-window chat. Requests snapshot retained batch embeddings, posts and group metadata; coordinates are null. No processed posts yields HTTP 503; groups may expire during the request. |
 
 **Review priority** (API-time, 0 to 100): a triage heuristic, not a probability or validated detection quality. Final concern contributes 0/15/39/60 points for none/low/medium/high; insufficient evidence adds zero. For each of duplicate ratio, top author share and burstiness, normalized excess is `max(0, value - baseline) / (1 - baseline)` at the chosen anomaly percentile (zero when the baseline is one). Spread adds `20 * (max(excesses) + mean(excesses))`, up to 40. The API exposes `review_priority` and the full `review_score` breakdown; failed or unanalysed clouds have an explicit `spread_only` partial status. Confidence and relevance stay separate.
 

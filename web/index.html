@@ -12,21 +12,14 @@
 <body>
   <main class="menu">
     <h1>Online narrative mapping</h1>
-    <p class="lead">We map what's being said online and spot when it's being pushed, not shared.</p>
-    <ol>
-      <li>10,000 public Bluesky posts are sampled at random from a fixed dataset.</li>
-      <li>Similar posts are grouped using their text embeddings. Each ball is one group: its area shows the number of posts and its colour shows concern.</li>
-      <li>Nemotron Lightning describes the framing of groups. Repeated text and other spread signals help identify candidates for human review; a political topic alone is not evidence of propaganda.</li>
-      <li>Ask Nemotron 3.5 Super about a post, file, image or article. It assesses propaganda-style persuasion in the original material, while a separate judge reviews its relationship to the closest group.</li>
-    </ol>
+    <p class="lead">Explore patterns in public posts and ask AI about a post, image or article.</p>
     <nav class="modes" aria-label="Demo">
       <a href="/live"><strong>Open live analysis</strong><span>Watch simulated posts form groups while chatting with Nemotron 3.5 Super.</span><i aria-hidden="true">→</i></a>
     </nav>
     <div class="note">
       <p id="menu-status">&nbsp;</p>
-      <p>Propaganda-style persuasion can be identified without deciding truth or intent. Repeated posts and model assessments do not prove coordination or malicious intent.</p>
-      <p>Chat matches against the preloaded dataset; the live balls show a separate rolling stream.</p>
-      <p>Ball positions are only a layout, not a measure of similarity. Click a group for its explanation and example posts.</p>
+      <p>Historical data simulates traffic. AI assessments and repeated posts are not proof of coordination or intent.</p>
+      <p>Ball size shows post count; colour shows concern. Select a ball to learn more.</p>
     </div>
   </main>
 </body>

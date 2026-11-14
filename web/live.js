@@ -1,9 +1,9 @@
 import { createMap } from "./map.js";
 import { createGroupCard } from "./group-card.js";
-import { groupLabel } from "./labels.js";
 import { createChat } from "./chat.js";
 
 const byId = (id) => document.getElementById(id);
+const liveRows = new Map();
 let selected = null;
 const map = createMap(byId("stage"), { onSelect: (id) => selectCloud(id) });
 const showCard = createGroupCard(
@@ -18,19 +18,24 @@ const showCard = createGroupCard(
 );
 const selectCloud = (id) => showCard(id);
 const docked = matchMedia("(min-width: 1000px)");
-const dock = () => map.setInset(docked.matches ? byId("composer").getBoundingClientRect().width + 40 : 0, docked.matches ? 200 : 320);
+const narrow = matchMedia("(max-width: 700px)");
+const dock = () => map.setInset(
+  docked.matches ? byId("composer").getBoundingClientRect().width + 40 : 0,
+  docked.matches ? 200 : 320, 0, narrow.matches ? 45 : 0,
+);
 docked.addEventListener("change", dock);
+narrow.addEventListener("change", dock);
 dock();
 
 async function setupChat() {
   try {
-    const response = await fetch("/api/meta");
+    const response = await fetch("/api/live/chat/status");
     if (!response.ok) {
       const body = await response.json();
       throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${response.status}`);
     }
     const meta = await response.json();
-    createChat({ meta, rows: new Map(), selectCloud, map, live: true });
+    createChat({ meta, rows: liveRows, selectCloud, map, live: true });
   } catch (error) {
     byId("prompt").placeholder = `Chat unavailable: ${error.message}`;
   }
@@ -45,29 +50,34 @@ function notice(message) {
 
 function render(snapshot) {
   const rows = snapshot.groups;
+  liveRows.clear();
+  for (const row of rows) liveRows.set(row.cluster_id, row);
   map.setClouds(rows, { preloaded: true });
   if (selected != null && !rows.some((row) => row.cluster_id === selected)) selectCloud(null);
-  byId("info").textContent = `live test · ${snapshot.dataset} · new groups per batch · not real-time social traffic`;
   byId("arrived").textContent = `${snapshot.processed.toLocaleString()} processed`;
-  byId("rate").textContent = `${snapshot.retained.toLocaleString()} / ${snapshot.window_limit.toLocaleString()} posts in window`;
-  byId("batch-size").textContent = `batch size: ${snapshot.batch_size.toLocaleString()} source rows`;
+  byId("rate").textContent = `${snapshot.retained.toLocaleString()} / ${snapshot.window_limit.toLocaleString()} in window`;
+  byId("batch-size").textContent = `batch: ${snapshot.batch_size.toLocaleString()} source records`;
   const batch = snapshot.last_batch;
   const speed = batch?.posts_per_second;
-  byId("batch-speed").textContent = batch
-    ? `last batch: ${batch.posts.toLocaleString()} posts / ${batch.source_rows.toLocaleString()} rows · ${batch.grouped_posts.toLocaleString()} grouped · ${batch.seconds.toFixed(1)} s · ${speed == null ? "speed unavailable" : `${speed.toFixed(2)} posts/s`}`
-    : "last batch: awaiting results";
-  byId("clock").textContent = `${snapshot.scanned.toLocaleString()} source rows scanned${snapshot.resumed_from ? ` · resumed at ${snapshot.resumed_from.toLocaleString()}` : ""} · ${snapshot.total_groups.toLocaleString()} groups in window${snapshot.hidden_groups ? ` · ${snapshot.hidden_groups} below threshold` : ""}${snapshot.failed_groups ? ` · ${snapshot.failed_groups} analyses failed` : ""}`;
+  byId("batch-speed").textContent = !batch ? "speed: awaiting results"
+    : speed == null ? "speed unavailable" : `${speed.toFixed(2)} posts/s`;
+  if (speed == null) {
+    byId("batch-speed").style.removeProperty("--speed-hue");
+    byId("batch-speed").classList.remove("speed-coloured");
+  } else {
+    byId("batch-speed").style.setProperty("--speed-hue", String(Math.max(0, Math.min(speed / 20, 1)) * 120));
+    byId("batch-speed").classList.add("speed-coloured");
+  }
+  byId("dataset").textContent = `Historical dataset: ${snapshot.dataset}`;
+  byId("last-batch").textContent = batch
+    ? `Last batch: ${batch.posts.toLocaleString()} posts / ${batch.source_rows.toLocaleString()} records · ${batch.grouped_posts.toLocaleString()} grouped · ${batch.seconds.toFixed(1)} s`
+    : "Last batch: awaiting results";
+  byId("clock").textContent = `${snapshot.scanned.toLocaleString()} source records read (including filtered records)${snapshot.resumed_from ? ` · resumed at ${snapshot.resumed_from.toLocaleString()}` : ""} · ${snapshot.total_groups.toLocaleString()} groups in window${snapshot.hidden_groups ? ` · ${snapshot.hidden_groups} below threshold` : ""}${snapshot.failed_groups ? ` · ${snapshot.failed_groups} analyses failed` : ""}`;
+  byId("failures").hidden = !snapshot.failed_groups;
+  byId("failures").textContent = snapshot.failed_groups ? `${snapshot.failed_groups} group analyses failed` : "";
   const emptyReason = snapshot.total_groups
     ? "Groups were found, but all are below the review threshold."
     : "No groups found in the current window; posts may be too dissimilar or batches too small.";
-  byId("ranking").replaceChildren(...rows.slice(0, 6).map((row) => {
-    const item = document.createElement("div");
-    const score = Object.assign(document.createElement("b"), { textContent: String((row.status === "ok" ? row.concern_level : row.status) ?? "unavailable").replaceAll("_", " ") });
-    const name = Object.assign(document.createElement("span"), { textContent: groupLabel(row.label, row.cluster_id) });
-    const count = Object.assign(document.createElement("i"), { textContent: `${row.size} posts` });
-    item.append(score, name, count);
-    return item;
-  }));
   if (snapshot.status === "starting" || snapshot.status === "idle") {
     notice(snapshot.resumed_from ? `Resuming after ${snapshot.resumed_from.toLocaleString()} source rows…` : "Starting dataset stream and embedding model…");
   } else if (snapshot.status === "error") {
@@ -76,7 +86,7 @@ function render(snapshot) {
     if (rows.length) byId("notice").hidden = true;
     else if (snapshot.resumed_from && !snapshot.retained) notice("The dataset is exhausted. The previous rolling window was not saved across the server restart.");
     else notice(`The dataset is exhausted. ${emptyReason}`);
-    byId("rate").textContent += " · dataset exhausted";
+    byId("arrived").textContent += " · dataset exhausted";
   } else if (!rows.length) {
     notice(snapshot.last_batch ? `${emptyReason} Processing continues.` : "Processing the first batch…");
   } else {

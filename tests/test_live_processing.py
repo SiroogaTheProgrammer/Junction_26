@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import numpy as np
@@ -9,9 +10,16 @@ from datasets import Dataset
 from detector import analyze, live
 from detector import api
 from detector.config import Settings
-from detector.stats import cluster_stats
+from detector.stats import build_baseline, cluster_stats
 from fastapi.testclient import TestClient
 from tests.test_analyze_rules import _analysis
+
+
+@pytest.fixture(autouse=True)
+def mock_stream_embeddings(monkeypatch):
+    def fake_encode(_model, texts, _batch_size, progress=False):
+        return np.ones((len(texts), 384), dtype=np.float32)
+    monkeypatch.setattr(live, "encode", fake_encode)
 
 
 def test_stream_processes_beyond_first_window_and_only_writes_cursor(tmp_path, monkeypatch):
@@ -29,7 +37,7 @@ def test_stream_processes_beyond_first_window_and_only_writes_cursor(tmp_path, m
     monkeypatch.setattr(live, "choose_device", lambda _: "cpu")
     monkeypatch.setattr(live, "load_model", lambda *_: object())
 
-    def group(frame, model, config, next_id):
+    def group(frame, model, config, next_id, vectors):
         stats = cluster_stats(frame, config)
         return [({**stats, "stats": stats, "cluster_id": next_id,
                   "representative_post_ids": frame["post_id"].head(10).tolist()}, frame)]
@@ -54,6 +62,11 @@ def test_stream_processes_beyond_first_window_and_only_writes_cursor(tmp_path, m
     assert processor.detail(0) is None and processor.detail(1) is None
     assert processor.detail(2)["analysis"]["sample"][0]["post_id"] == 50
     assert processor.detail(3)["cluster"]["size"] == 5
+    placer, clouds, texts = processor.chat_context()
+    assert set(placer.post_ids) == set(range(50, 80))
+    assert set(clouds) == {2, 3}
+    assert set(texts) == set(range(50, 80))
+    assert len(placer.embeddings) == processor.retained
     assert {path.name for path in tmp_path.iterdir()} == {"live_progress.json", "live_progress.lock"}
     checkpoint = live.LiveCheckpoint.model_validate(live.read_json(tmp_path / "live_progress.json"))
     assert checkpoint.complete and checkpoint.processed == 80
@@ -156,6 +169,73 @@ def test_snapshot_distinguishes_hidden_groups_from_no_groups(tmp_path):
     snapshot = processor.snapshot()
     assert snapshot["total_groups"] == snapshot["hidden_groups"] == 1
     assert snapshot["groups"] == []
+
+
+def test_result_preserves_order_and_metadata_for_sampled_posts():
+    settings = Settings(_env_file=None)
+    posts = pd.DataFrame({
+        "post_id": [1, 2, 3], "text": ["first", "second", "third"],
+        "author": ["a", "b", "c"],
+        "created_at": pd.date_range("2026-01-01", periods=3, freq="min", tz="UTC"),
+    })
+    stats = cluster_stats(posts, settings)
+    group = {**stats, "stats": stats, "cluster_id": 0}
+    baseline = build_baseline([group], settings, burstiness_reliable=False)
+    record = {
+        "status": "ok", "parsed": _analysis().model_dump(mode="json"),
+        "sample": [{"post_id": 3, "pid": "p1"}, {"post_id": 99, "pid": "missing"},
+                   {"post_id": 1, "pid": "p2"}],
+    }
+    result = live._result(group, posts, record, baseline, settings, "live batch")
+    assert result["analysis"]["sample"] == [
+        {"post_id": 3, "pid": "p1", "text": "third"},
+        {"post_id": 1, "pid": "p2", "text": "first"},
+    ]
+
+
+def test_live_chat_uses_window_without_offline_artifacts(tmp_path, monkeypatch):
+    settings = Settings(
+        _env_file=None, data_dir=tmp_path, super_llm_api_key="test-key",
+        super_llm_base_url="https://test.invalid/v1", chat_neighbors=4,
+    )
+    monkeypatch.setattr(api, "settings", settings)
+    monkeypatch.setattr(api, "create_super_client", lambda _: AsyncMock())
+    processor = live.LiveProcessor(settings)
+    processor.encoder_model = object()
+    vectors = np.zeros((4, 384), dtype=np.float32)
+    vectors[:, 0] = 1
+    monkeypatch.setattr(live, "encode", lambda *_args, **_kwargs: vectors[:1])
+
+    async def fake_chat(**kwargs):
+        vector = kwargs["placer"].embed("query")
+        placement = kwargs["placer"].place(vector)
+        return {
+            "placement": placement,
+            "texts": [kwargs["post_text"](row["post_id"]) for row in placement["neighbors"]],
+            "labels": [row["label"] for row in kwargs["clouds"].values()],
+        }
+
+    monkeypatch.setattr(api, "run_chat", fake_chat)
+    with TestClient(api.app) as client:
+        api.app.state.live = processor
+        assert client.get("/api/live/chat/status").json()["chat"]["available"]
+        response = client.post("/api/live/chat", json={"message": "Test"})
+        assert response.status_code == 503
+        assert "No processed posts" in response.json()["detail"]
+        processor.index.append((
+            vectors, np.array([4, 5, 6, 7]), np.array([11, 11, -1, -1]),
+            {4: "live four", 5: "live five", 6: "live six", 7: "live seven"},
+            {11: {"label": "Live group"}},
+        ))
+        response = client.post("/api/live/chat", json={"message": "Test"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["placement"]["nearest"]["cluster_id"] == 11
+        assert body["placement"]["coordinates"] is None
+        assert set(body["texts"]) == {"live four", "live five", "live six", "live seven"}
+        assert body["labels"] == ["Live group"]
+        assert client.get("/api/live/chat/status").json()["window_posts"] == 4
+        assert api.app.state.dashboard is None
 
 
 def test_stream_passes_50000_posts_and_never_retains_more_than_50000(tmp_path, monkeypatch):
@@ -355,6 +435,7 @@ def test_live_snapshot_and_details_api_without_offline_artifacts(tmp_path, monke
     class FakeProcessor:
         def __init__(self, settings):
             self.started = False
+            self.revision = 1
 
         def start(self):
             self.started = True
@@ -379,6 +460,43 @@ def test_live_snapshot_and_details_api_without_offline_artifacts(tmp_path, monke
         assert client.get("/api/live/clusters/6").status_code == 404
 
 
+def test_live_stream_builds_snapshots_only_when_revision_changes(monkeypatch):
+    class Processor:
+        revision = 0
+        calls = 0
+
+        def start(self):
+            pass
+
+        def snapshot(self):
+            self.calls += 1
+            return {"revision": self.revision, "status": "complete" if self.revision else "running"}
+
+    processor = Processor()
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(live=processor)),
+        is_disconnected=AsyncMock(return_value=False),
+    )
+    sleeps = 0
+
+    async def tick(_seconds):
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 2:
+            processor.revision = 1
+
+    monkeypatch.setattr(api.asyncio, "sleep", tick)
+
+    async def collect():
+        response = await api.live_processed(request)
+        return [event async for event in response.body_iterator]
+
+    events = asyncio.run(collect())
+    assert len(events) == processor.calls == 2
+    assert '"status": "running"' in events[0]
+    assert '"status": "complete"' in events[1]
+
+
 def test_real_live_analyzer_produces_viewable_sample_and_group(tmp_path, monkeypatch):
     settings = Settings(
         _env_file=None, llm_api_key="test-key", llm_base_url="https://test.invalid/v1",
@@ -395,7 +513,7 @@ def test_real_live_analyzer_produces_viewable_sample_and_group(tmp_path, monkeyp
     monkeypatch.setattr(live, "choose_device", lambda _: "cpu")
     monkeypatch.setattr(live, "load_model", lambda *_: object())
 
-    def group(frame, model, config, next_id):
+    def group(frame, model, config, next_id, vectors):
         stats = cluster_stats(frame, config)
         return [({**stats, "stats": stats, "cluster_id": next_id,
                   "representative_post_ids": frame["post_id"].head(10).tolist()}, frame)]

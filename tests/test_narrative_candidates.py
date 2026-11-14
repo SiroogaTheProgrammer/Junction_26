@@ -70,7 +70,10 @@ def test_cross_batch_repetition_is_reviewed_separately_from_broad_topic(tmp_path
     monkeypatch.setattr(live, "load_model", lambda *_: object())
     monkeypatch.setattr(live, "create_client", lambda _: AsyncMock())
 
-    def broad_topic(frame, model, config, next_id):
+    monkeypatch.setattr(live, "encode", lambda _model, texts, _batch, progress=False:
+                        np.ones((len(texts), 384), dtype=np.float32))
+
+    def broad_topic(frame, model, config, next_id, vectors):
         stats = cluster_stats(frame, config)
         return [({**stats, "stats": stats, "cluster_id": next_id, "representative_post_ids": []}, frame)]
 
