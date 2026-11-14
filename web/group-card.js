@@ -9,7 +9,7 @@ function node(tag, text, className) {
   return element;
 }
 
-export function createGroupCard(card, select) {
+export function createGroupCard(card, select, onVisibilityChange = () => {}) {
   let request = null;
 
   function render({ cluster, analysis }) {
@@ -109,7 +109,9 @@ export function createGroupCard(card, select) {
 
   async function show(id) {
     request?.abort();
-    if (select(id) == null) {
+    const selected = select(id);
+    onVisibilityChange(selected != null);
+    if (selected == null) {
       card.hidden = true;
       return;
     }

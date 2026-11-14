@@ -16,7 +16,11 @@ function node(tag, text, className) {
 
 const state = { meta: null, rows: new Map(), history: [], files: [], busy: false };
 const map = createMap(byId("stage"), { onSelect: (id) => selectCloud(id) });
-const selectCloud = createGroupCard(byId("card"), (id) => map.select(id));
+const selectCloud = createGroupCard(byId("card"), (id) => map.select(id), (visible) => {
+  byId("thread").hidden = visible;
+  byId("chips").hidden = visible;
+  if (!visible) byId("thread").scrollTop = byId("thread").scrollHeight;
+});
 
 function notice(message, command) {
   const box = byId("notice");
@@ -169,6 +173,10 @@ function resize() {
 function setupChat() {
   const input = byId("prompt");
   const composer = byId("composer");
+  composer.addEventListener("focusin", () => selectCloud(null));
+  composer.addEventListener("click", () => {
+    if (!byId("card").hidden) selectCloud(null);
+  });
   if (!state.meta.chat.available) {
     input.disabled = true;
     byId("files").disabled = true;
@@ -196,12 +204,17 @@ function setupChat() {
   for (const name of ["dragleave", "drop"]) {
     document.addEventListener(name, (event) => { event.preventDefault(); composer.classList.remove("dragging"); });
   }
-  document.addEventListener("drop", (event) => { if (event.dataTransfer?.files.length) addFiles(event.dataTransfer.files); });
+  document.addEventListener("drop", (event) => {
+    if (event.dataTransfer?.files.length) {
+      selectCloud(null);
+      addFiles(event.dataTransfer.files);
+    }
+  });
 }
 
-// On wide screens chat docks left, leaving the right-hand group details clear.
+// On wide screens the panel shares the right edge, leaving the remaining area for bubbles.
 const docked = matchMedia("(min-width: 1000px)");
-const dock = () => map.setInset(0, docked.matches ? 0 : 210, docked.matches ? byId("composer").getBoundingClientRect().width + 40 : 0);
+const dock = () => map.setInset(docked.matches ? byId("composer").getBoundingClientRect().width + 40 : 0, docked.matches ? 0 : 210);
 docked.addEventListener("change", dock);
 dock();
 

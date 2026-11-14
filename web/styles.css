@@ -156,18 +156,28 @@ button, textarea { font: inherit; color: inherit; }
 /* Chat */
 .chat {
   position: absolute;
-  left: 50%;
+  top: 60px;
+  right: var(--edge);
   bottom: var(--edge);
   z-index: 4;
-  transform: translateX(-50%);
   width: min(var(--chat-width), calc(100% - 2 * var(--edge)));
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   gap: var(--gap);
   pointer-events: none;
 }
 .chat > * { pointer-events: auto; }
-.thread { max-height: 44vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap); scrollbar-width: thin; }
+.chat .card {
+  position: static;
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  flex: 0 1 auto;
+}
+.thread { max-height: 100%; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap); scrollbar-width: thin; }
 .thread:empty { display: none; }
+.chat .chips, .chat .composer { flex: 0 0 auto; }
 .msg {
   max-width: 88%;
   padding: 10px 14px;
@@ -222,15 +232,15 @@ button, textarea { font: inherit; color: inherit; }
 .status strong { color: var(--text); font-size: var(--title-size); font-weight: 600; letter-spacing: -.04em; }
 
 @media (min-width: 1000px) {
-  .chat { left: var(--edge); right: auto; transform: none; width: var(--dock-width); }
-  .thread { max-height: 64vh; }
+  .chat { width: var(--dock-width); }
   .msg { max-width: 100%; }
-  .submission-note { left: calc(var(--dock-width) + 2 * var(--edge)); bottom: var(--edge); max-width: calc(100% - var(--dock-width) - 3 * var(--edge)); }
+  .submission-note { bottom: var(--edge); max-width: calc(100% - var(--dock-width) - 3 * var(--edge)); }
 }
 @media (max-width: 700px) {
   :root { --edge: 12px; }
   .menu { padding-top: 8vh; }
   .card { max-height: 40%; }
+  .chat .card { max-height: 40vh; }
   .thread { max-height: 36vh; }
   .composer .hint { display: none; }
   .ranking span { max-width: 22ch; }
