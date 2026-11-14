@@ -102,7 +102,7 @@ def _rounded_stats(cluster: dict[str, Any], baseline: dict[str, Any]) -> dict[st
             percentile: round(float(bounds.get(percentile, 0.0)), 4) for percentile in ("p50", "p90")
         }
     stats.update({
-        "details": cluster.get("stats", {}),
+        "details": {**cluster.get("stats", {}), "source_scope": cluster.get("source_scope", "dataset")},
         "baseline_bucket": selected["name"], "baseline_source": selected["source"],
         "burstiness_reliable": baseline.get("burstiness_reliable", True),
         "burst_window_min": baseline.get("burst_window_min", 10),
@@ -142,6 +142,7 @@ def _cluster_input_hash(
     )
     stats = _rounded_stats(cluster, baseline)
     stats["rules"] = {
+        "source_scope": cluster.get("source_scope"),
         "anomaly": behavior_anomaly(cluster, baseline, settings.anomaly_percentile).model_dump(),
         "anomaly_percentile": settings.anomaly_percentile,
         "min_sample_for_confidence": settings.min_sample_for_confidence,

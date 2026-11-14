@@ -186,6 +186,72 @@ def test_swarm_rule_reads_nested_stats():
     assert apply_rules(analysis, context)[0].concern_level == "low"
 
 
+@pytest.mark.parametrize("kind", ["plain_topic", "personal_chatter", "issue_discussion", "news_relay"])
+def test_shared_hashtags_or_basic_conversation_do_not_raise_concern(kind):
+    analysis = _analysis("low")
+    analysis.relevance_kind = kind
+    analysis.claims, analysis.techniques = [], []
+    analysis.relevance = 0.4
+    parsed, changes = apply_rules(analysis, rule_context(
+        behavior_anomaly=True, top_hashtag_share=1, **SWARM,
+    ))
+    assert parsed.concern_level == "none"
+    assert any(change["rule"] == "ordinary_conversation" for change in changes)
+    assert all(change["rule"] != "swarm_indicators" for change in changes)
+
+
+def repeated_framing_context(**overrides):
+    return rule_context(
+        valid_pids={"p1", "p2", "p3"}, behavior_anomaly=False,
+        **{
+            "source_scope": "repeated text across live batches", "exact_dup_ratio": 1.0,
+            "dup_authors": 3, "top_author_share": 1 / 3, **overrides,
+        },
+    )
+
+
+def repeated_framing_analysis():
+    analysis = _analysis("low")
+    analysis.claims = [Claim(text="The president is trying to overrule the central bank.",
+                             kind="checkable", evidence=["p1", "p2", "p3"])]
+    analysis.techniques = []
+    analysis.templating = Templating(detected=True, evidence=["p1", "p2", "p3"])
+    return analysis
+
+
+def test_three_account_cross_batch_framing_is_medium_with_low_confidence():
+    parsed, changes = apply_rules(repeated_framing_analysis(), repeated_framing_context())
+    assert parsed.concern_level == "medium"
+    assert parsed.confidence == 0.4
+    assert any(change["rule"] == "repeated_cross_account_framing" for change in changes)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"source_scope": "live batch"}, {"dup_authors": 2},
+    {"exact_dup_ratio": 0.89}, {"top_author_share": 0.6},
+])
+def test_small_repeated_framing_rule_requires_all_spread_evidence(overrides):
+    parsed, changes = apply_rules(repeated_framing_analysis(), repeated_framing_context(**overrides))
+    assert parsed.concern_level == "low"
+    assert all(change["rule"] != "repeated_cross_account_framing" for change in changes)
+
+
+@pytest.mark.parametrize("missing", ["claims", "templating", "shared_claim", "narrative"])
+def test_small_repeated_framing_rule_does_not_raise_news_or_uncited_framing(missing):
+    analysis = repeated_framing_analysis()
+    if missing == "claims":
+        analysis.claims = []
+    elif missing == "templating":
+        analysis.templating.evidence = ["p1", "p2"]
+    elif missing == "shared_claim":
+        analysis.claims[0].evidence = ["p1", "p999"]
+    else:
+        analysis.relevance_kind = "news_relay"
+    parsed, changes = apply_rules(analysis, repeated_framing_context())
+    assert parsed.concern_level != "medium"
+    assert all(change["rule"] != "repeated_cross_account_framing" for change in changes)
+
+
 def test_full_label_is_retained_and_heading_marker_removed():
     data = _analysis().model_dump()
     data["label"] = "## Mixed personal posts with links and local political discussion"

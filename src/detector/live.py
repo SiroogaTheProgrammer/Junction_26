@@ -413,6 +413,7 @@ class LiveProcessor:
                         stats = await _cpu(cluster_stats, posts, self.settings)
                         group = {
                             **stats, "stats": stats, "cluster_id": self.pattern_ids[key],
+                            "source_scope": "repeated text across live batches",
                             "representative_post_ids": posts["post_id"].head(10).astype(int).tolist(),
                         }
                         candidates.append((key, group, posts))

@@ -5,6 +5,7 @@ import { createChat } from "./chat.js";
 const byId = (id) => document.getElementById(id);
 const liveRows = new Map();
 let selected = null;
+let runningDataset = null;
 const map = createMap(byId("stage"), { onSelect: (id) => selectCloud(id) });
 const showCard = createGroupCard(
   byId("card"),
@@ -49,6 +50,7 @@ function notice(message) {
 }
 
 function render(snapshot) {
+  runningDataset = snapshot.dataset;
   const rows = snapshot.groups;
   liveRows.clear();
   for (const row of rows) liveRows.set(row.cluster_id, row);
@@ -95,6 +97,7 @@ function render(snapshot) {
 }
 
 const stream = new EventSource("/api/live/processed");
+stream.addEventListener("dataset_changed", () => location.reload());
 stream.addEventListener("message", (event) => {
   const snapshot = JSON.parse(event.data);
   render(snapshot);
@@ -104,3 +107,16 @@ stream.addEventListener("error", () => {
   stream.close();
   notice("The live connection was interrupted. Reload to reconnect to the current run.");
 });
+// Completed streams are closed; those viewers still need to notice a source switch.
+setInterval(async () => {
+  if (!runningDataset) return;
+  try {
+    const response = await fetch("/api/datasets");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const sources = await response.json();
+    const active = sources.find((source) => source.live);
+    if (active && active.repo !== runningDataset) location.reload();
+  } catch (error) {
+    console.warn("Could not check the active Live dataset", error);
+  }
+}, 5000);

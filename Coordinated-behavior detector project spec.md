@@ -272,9 +272,11 @@ Technique names: `fear_appeal`, `scapegoating`, `false_urgency`, `loaded_languag
 2. Clamp relevance/confidence to 0..1. Nonfinite scores are invalid.
 3. Mark medium/high concern as insufficient evidence if no cited claims or techniques survive validation (`missing_content_evidence`). Organic spread or a lookalike does not automatically erase evidenced content concern.
 4. Cap concern to none for low-relevance, non-anomalous material without cited claims or techniques (`plain_topic`).
-5. Raise concern one level (none or insufficient evidence to low, low to medium; never above medium) when near-duplicate text is above the p90 baseline, at least 5 accounts posted it, and the top account has at most half the posts (`swarm_indicators`). This is a coordination indicator, not proof of bots or shared control.
-6. Cap confidence at 0.4 below `MIN_SAMPLE_FOR_CONFIDENCE`.
-7. Preserve `concern_level_model` and `relevance_model`; log every enforced change in `rule_log`.
+5. Set low concern to none for plain topics, personal chatter, issue discussion or news relay without validated claims or techniques (`ordinary_conversation`). Do not apply the generic swarm raise to such groups; shared hashtags and ordinary conversation alone do not justify concern.
+6. Raise concern one level (none or insufficient evidence to low, low to medium; never above medium) when near-duplicate text is above the p90 baseline, at least 5 accounts posted it, and the top account has at most half the posts (`swarm_indicators`). This is a coordination indicator, not proof of bots or shared control.
+7. Set concern to at least medium for cross-batch repeated-text candidates with exact duplicate ratio >= 0.9, at least 3 duplicate authors, top-author share <= 0.5, narrative relevance >= 0.6, validated shared-claim evidence citing at least 2 posts, and detected templating citing at least 3 posts (`repeated_cross_account_framing`). This narrow rule does not require a percentile anomaly flag, which may be suppressed for small groups.
+8. Cap confidence at 0.4 below `MIN_SAMPLE_FOR_CONFIDENCE`.
+9. Preserve `concern_level_model` and `relevance_model`; log every enforced change in `rule_log`.
 
 Overlong summary, relevance reason and explanation are truncated with an ellipsis; full labels are retained.
 

@@ -29,7 +29,8 @@ def write(path: Path, size: int = 10) -> Path:
 def test_cleanup_keeps_only_live_cursor_and_unrelated_files(tmp_path, caches):
     data = tmp_path / "data"
     kept = [write(data / "live_progress.json"), write(data / "live_progress.lock"),
-            write(data / "trump-2020" / "live_progress.json"), write(data / "notes.txt")]
+            write(data / "trump-2020" / "live_progress.json"), write(data / "live_source.json"),
+            write(data / "notes.txt")]
     old = [write(data / "posts.parquet", 1000), write(data / "analyses.previous-2000.jsonl"),
            write(data / "clouds-10000" / "embeddings.npy", 5000), write(data / "clouds-10000" / "clusters.json")]
     datasets_cache, xet = caches

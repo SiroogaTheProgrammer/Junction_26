@@ -17,9 +17,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from detector.chat import ChatInputError, ChatUpstreamError, Placer, run_chat
-from detector.config import get_settings
+from detector.config import Settings, get_settings
 from detector.embedding import VECTOR_SIZE
-from detector.io import read_json, read_jsonl, require_artifact
+from detector.io import read_json, read_jsonl, require_artifact, write_json
 from detector.llm import create_client, create_super_client, super_configured
 from detector.projection import ProjectionModel
 from detector.prompts import PROMPT_VERSION
@@ -164,9 +164,17 @@ async def lifespan(app: FastAPI):
 
     app.state.chat_slots = asyncio.Semaphore(settings.chat_concurrency)
     app.state.chat_times = deque()
-    app.state.live = LiveProcessor(settings)
+    app.state.live_lock = asyncio.Lock()
+    selected = read_json(settings.data_path / "live_source.json")
+    if selected is not None:
+        if not isinstance(selected, dict) or selected.get("id") not in DATASETS:
+            raise ValueError("Invalid saved Live dataset selection in live_source.json")
+        live_settings = _dataset_settings(selected["id"])
+    else:
+        live_settings = settings
+    app.state.live = LiveProcessor(live_settings)
     app.state.dashboard = None
-    cleaner = asyncio.create_task(_storage_cleanup()) if settings.storage_cleanup else None
+    cleaner = asyncio.create_task(_storage_cleanup(app)) if settings.storage_cleanup else None
     try:
         yield
     finally:
@@ -175,13 +183,28 @@ async def lifespan(app: FastAPI):
         await app.state.live.close()
 
 
-async def _storage_cleanup() -> None:
+def _dataset_settings(dataset_id: str) -> Settings:
+    repo = DATASETS[dataset_id]["repo"]
+    # Preserve the deployment's existing cursor for its configured default source.
+    data_dir = settings.data_path if repo == settings.live_dataset else (
+        settings.data_path / "live-sources" / dataset_id
+    )
+    return settings.model_copy(update={"live_dataset": repo, "data_dir": data_dir})
+
+
+async def _storage_cleanup(application: FastAPI) -> None:
     """Keep only what the running Live view needs; failures are logged and retried next interval."""
     from detector.storage import cleanup
 
     while True:
         try:
-            await asyncio.to_thread(cleanup, settings)
+            async with application.state.live_lock:
+                active = application.state.live.settings.model_copy(update={"data_dir": settings.data_path})
+                task = asyncio.create_task(asyncio.to_thread(cleanup, active))
+                try:
+                    await asyncio.shield(task)
+                finally:
+                    await task
         except Exception:
             logger.exception("Storage cleanup failed")
         await asyncio.sleep(settings.storage_cleanup_hours * 3600)
@@ -389,6 +412,9 @@ async def live_processed(request: Request) -> StreamingResponse:
     async def events():
         revision = -1
         while not await request.is_disconnected():
+            if processor is not request.app.state.live:
+                yield 'event: dataset_changed\ndata: {}\n\n'
+                break
             if processor.revision != revision:
                 snapshot = processor.snapshot()
                 revision = snapshot["revision"]
@@ -596,12 +622,45 @@ def cluster_posts(
 
 
 @app.get("/api/datasets")
-def list_datasets() -> list[dict[str, Any]]:
+def list_datasets(request: Request) -> list[dict[str, Any]]:
     return [
         {"id": key, "name": item["name"], "repo": item["repo"], "about": item["about"],
-         "live": item["repo"] == settings.live_dataset}
+         "live": item["repo"] == request.app.state.live.settings.live_dataset}
         for key, item in DATASETS.items()
     ]
+
+
+@app.post("/api/datasets/{dataset_id}/run")
+async def run_dataset(dataset_id: str, request: Request) -> dict[str, Any]:
+    from detector.live import LiveProcessor
+
+    if dataset_id not in DATASETS:
+        raise HTTPException(status_code=404, detail="Unknown dataset")
+    if not settings.llm_api_key or not settings.llm_api_key.get_secret_value().strip():
+        raise HTTPException(status_code=503, detail="Configure LLM_API_KEY for Live analysis.")
+    async with request.app.state.live_lock:
+        old = request.app.state.live
+        if old.settings.live_dataset == DATASETS[dataset_id]["repo"]:
+            old.start()
+            return {"dataset": old.settings.live_dataset, "url": "/live"}
+        try:
+            write_json(settings.data_path / "live_source.json", {"id": dataset_id})
+        except OSError as exc:
+            logger.exception("Could not save Live dataset selection")
+            raise HTTPException(status_code=500, detail="Could not save Live dataset selection.") from exc
+        await old.close()
+        processor = LiveProcessor(_dataset_settings(dataset_id))
+        # An in-flight chat snapshot can still finish, but the old window is no longer available.
+        old.index.clear()
+        old.batches.clear()
+        old.pattern_results.clear()
+        old.pattern_ids.clear()
+        old.patterns.posts.clear()
+        old.patterns.batches.clear()
+        request.app.state.live = processor
+        processor.start()
+        logger.info("Switched shared Live dataset to %s", processor.settings.live_dataset)
+        return {"dataset": processor.settings.live_dataset, "url": "/live"}
 
 
 @app.get("/api/datasets/{dataset_id}/rows")

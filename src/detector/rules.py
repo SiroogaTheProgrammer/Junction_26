@@ -103,9 +103,30 @@ def apply_rules(
         change("concern_level", "insufficient_evidence", "missing_content_evidence")
     if data["relevance"] < 0.2 and not cluster["behavior_anomaly"] and not (data["claims"] or data["techniques"]) and data["concern_level"] not in {"none", "insufficient_evidence"}:
         change("concern_level", "none", "plain_topic")
+    ordinary_chatter = (
+        data["relevance_kind"] in {"plain_topic", "personal_chatter", "issue_discussion", "news_relay"}
+        and not (data["claims"] or data["techniques"])
+    )
+    if ordinary_chatter and data["concern_level"] == "low":
+        change("concern_level", "none", "ordinary_conversation")
     # Coordination indicators raise concern one level even without claims; still not proof of bots.
-    if data["concern_level"] in SWARM_RAISE and swarm_indicators(cluster):
+    if not ordinary_chatter and data["concern_level"] in SWARM_RAISE and swarm_indicators(cluster):
         change("concern_level", SWARM_RAISE[data["concern_level"]], "swarm_indicators")
+    stats = cluster.get("stats", cluster)
+    shared_claim_evidence = {pid for claim in data["claims"] for pid in claim["evidence"]}
+    repeated_framing = (
+        cluster.get("source_scope") == "repeated text across live batches"
+        and stats.get("exact_dup_ratio", 0) >= 0.9
+        and stats.get("dup_authors", 0) >= 3
+        and stats.get("top_author_share", 1) <= SWARM_MAX_TOP_AUTHOR_SHARE
+        and data["relevance_kind"] == "narrative"
+        and data["relevance"] >= 0.6
+        and len(shared_claim_evidence) >= 2
+        and data["templating"]["detected"]
+        and len(set(data["templating"]["evidence"])) >= 3
+    )
+    if repeated_framing and data["concern_level"] in {"none", "low", "insufficient_evidence"}:
+        change("concern_level", "medium", "repeated_cross_account_framing")
     if len(valid) < cluster.get("min_sample_for_confidence", 8):
         change("confidence", min(0.4, data["confidence"]), "small_sample")
     return Analysis.model_validate(data), changes

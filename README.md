@@ -72,20 +72,24 @@ available:
   or image information, and the timezone is not stated (times are read as UTC).
   Posts are identified by their position in the dataset.
 
-To run live analysis on the Trump 2020 dataset, an administrator sets these
-values in `.env` and restarts the app. Use a **new, empty data folder** so the
-Bluesky progress is kept:
+To **run** a dataset, select its tab and click **Run live analysis**. Confirm
+the switch, then the Live page opens. No `.env` or Compose edits are needed.
+Switching changes the shared source for **everyone**, clears the current
+in-memory window and makes chat use the selected dataset as its batches finish.
+Existing Live pages reload when the source changes.
 
-```bash
-LIVE_DATASET=falbanese/US_Trump_2020_social_media
-LIVE_DATASET_REVISION=main
-DATA_DIR=/app/data/trump-2020   # or data/trump-2020 when running without Docker
-```
+Each dataset resumes its own saved position. The configured default keeps its
+existing checkpoint in `DATA_DIR`; the other dataset keeps one under
+`DATA_DIR/live-sources/<dataset-id>`. Only one processor runs at a time.
+The selected source is saved in `DATA_DIR/live_source.json` and survives app
+restarts; automatic storage cleanup preserves this file and both cursors.
+Switching back does not replay an exhausted dataset. Model failures are shown
+on the Live page, and the source remains finite.
 
-To return to Bluesky, restore the previous three values. In Docker, the
-Compose file's `DATA_DIR` setting overrides `.env`, so change it there. The
-app refuses to start live processing if the dataset does not match the folder's
-saved progress.
+`LIVE_DATASET` still sets the initial deployment default before any UI
+selection is saved. Protect public access: the Run action starts remote model
+requests and changes the shared session, so it should only be available to
+trusted users.
 
 ## Start it on your computer
 
@@ -467,11 +471,20 @@ and a body size limit (also set in the `Caddyfile`).
   dominant authors, bursts) adds up to 40.
 - **Concern** describes framing and spread. It is not a verdict on truth or on
   people. Human calibration is still needed before treating rankings as validated.
+- **Basic conversation is not concerning on its own.** Shared hashtags,
+  greetings, ordinary news sharing and invitations to read an article do not
+  justify concern or a call-to-mass-action label. Without cited claims or
+  persuasion techniques, conversational groups are not raised just for duplicates.
 - **Possible swarms raise concern by one level.** When far more posts than usual
   are near-identical, at least 5 accounts posted them and no single account
   dominates, concern goes up one level (at most to medium), even without a clear
   claim, blame or call to action. The card says when this happened. It is a
   reason to review, not proof of bots.
+- **Small repeated framing can warrant medium review.** At least three accounts
+  repeating almost entirely identical text across batches can receive medium
+  concern when the sampled posts cite shared claims and templating. Ordinary
+  chatter and links alone do not qualify. Small-sample confidence stays capped
+  at 40%; this is not a finding of bots, falsehood or coordinated control.
 - A failed or unanalysed cloud is shown as such and is never dropped as insignificant.
 
 Full contracts: [project spec](./Coordinated-behavior%20detector%20project%20spec.md),

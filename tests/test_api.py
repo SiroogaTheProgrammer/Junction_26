@@ -225,3 +225,13 @@ def test_server_runs_storage_cleanup_at_startup_only_when_enabled(tmp_path, monk
             time.sleep(0.02)
         assert client.get("/api/health").status_code == 200
     assert calls == ([tmp_path] if enabled else [])
+
+
+def test_dataset_run_rejects_unknown_or_unconfigured_source_without_changing_progress(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "settings", Settings(_env_file=None, data_dir=tmp_path, llm_api_key=None))
+    with TestClient(api.app) as client:
+        processor = api.app.state.live
+        assert client.post("/api/datasets/unknown/run").status_code == 404
+        assert client.post("/api/datasets/trump-2020/run").status_code == 503
+        assert api.app.state.live is processor
+        assert not (tmp_path / "live_source.json").exists()

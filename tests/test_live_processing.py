@@ -784,3 +784,126 @@ def test_batch_and_pattern_reviews_share_the_real_analyzers_32_request_limit(tmp
         assert active == 0 and peak == 32
 
     asyncio.run(verify())
+
+
+def test_dataset_run_switches_processing_chat_window_and_survives_restart(tmp_path, monkeypatch):
+    settings = Settings(
+        _env_file=None, data_dir=tmp_path, llm_api_key="test-key",
+        live_batch_size=25, live_window_posts=50, storage_cleanup=False,
+    )
+    monkeypatch.setattr(api, "settings", settings)
+    monkeypatch.setattr(live, "_resolve_revision", lambda _: "fixed-revision")
+    monkeypatch.setattr(live, "choose_device", lambda _: "cpu")
+    monkeypatch.setattr(live, "load_model", lambda *_: object())
+    monkeypatch.setattr(live, "_group", lambda *_: [])
+    monkeypatch.setattr(live, "create_client", lambda _: AsyncMock())
+    opened = []
+
+    def source(config, _revision):
+        opened.append(config.live_dataset)
+        if config.live_dataset == api.DATASETS["trump-2020"]["repo"]:
+            rows = [{"source_id": 500 + i, "date": "2020-05-10 07:00:00",
+                     "texto": f"A sufficiently long Trump dataset example number {i}"} for i in range(25)]
+        else:
+            rows = [{"did": f"did:example:{i}", "rkey": str(i),
+                     "text": f"A sufficiently long Bluesky example number {i}",
+                     "created_at": "2026-01-01T00:00:00Z"} for i in range(25)]
+        return Dataset.from_list(rows).to_iterable_dataset()
+
+    monkeypatch.setattr(live, "_source", source)
+    with TestClient(api.app) as client:
+        assert client.get("/api/live/processed").status_code == 200
+        original = (tmp_path / "live_progress.json").read_bytes()
+        old = api.app.state.live
+        assert len(old.chat_context()[2]) == 25
+        assert client.post("/api/datasets/trump-2020/run").json()["url"] == "/live"
+        assert not old.index
+        assert client.get("/api/live/processed").status_code == 200
+        active = api.app.state.live
+        assert active.status == "complete"
+        assert all("Trump dataset" in text for text in active.chat_context()[2].values())
+        assert (tmp_path / "live_progress.json").read_bytes() == original
+        alternate = tmp_path / "live-sources" / "trump-2020" / "live_progress.json"
+        assert live.read_json(alternate)["processed"] == 25
+        assert live.read_json(tmp_path / "live_source.json") == {"id": "trump-2020"}
+        assert {item["id"] for item in client.get("/api/datasets").json() if item["live"]} == {"trump-2020"}
+        assert client.post("/api/datasets/trump-2020/run").status_code == 200
+        assert api.app.state.live is active
+
+    with TestClient(api.app) as client:
+        assert api.app.state.live.settings.live_dataset == api.DATASETS["trump-2020"]["repo"]
+        client.get("/api/live/processed")
+        assert len(opened) == 2  # Finished cursors are not silently replayed.
+        assert client.post("/api/datasets/bluesky/run").status_code == 200
+        client.get("/api/live/processed")
+        assert api.app.state.live.settings.data_path == tmp_path
+        assert api.app.state.live.processed == 25
+        assert (tmp_path / "live_progress.json").read_bytes() == original
+        assert live.read_json(tmp_path / "live_source.json") == {"id": "bluesky"}
+
+
+def test_existing_live_stream_reports_dataset_switch():
+    class Processor:
+        revision = 0
+
+        def start(self):
+            pass
+
+        def snapshot(self):
+            return {"revision": 0, "status": "running"}
+
+    original = Processor()
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(live=original)),
+        is_disconnected=AsyncMock(return_value=False),
+    )
+
+    async def verify():
+        response = await api.live_processed(request)
+        stream = response.body_iterator
+        first = await anext(stream)
+        assert '"status": "running"' in first
+        request.app.state.live = Processor()
+        switched = await anext(stream)
+        assert "event: dataset_changed" in switched
+        await stream.aclose()
+
+    asyncio.run(verify())
+
+
+def test_three_account_repeated_framing_uses_real_rules_despite_small_group_floor(
+    pipeline_source, monkeypatch,
+):
+    settings = pipeline_source.model_copy(update={"live_window_posts": 100, "min_analysis_size": 10})
+    repeated = (
+        "No president has tried to fire a sitting governor for disagreeing with his agenda. "
+        "Sending firing notices to central-bank officials is a power grab. Read: https://apnews.com/article/example"
+    )
+    rows = [{
+        "did": f"did:example:{i}", "rkey": str(i),
+        "text": repeated if i in {0, 25, 50} else f"A sufficiently long unique message number {i}",
+        "created_at": "2026-01-01T00:00:00Z",
+    } for i in range(75)]
+    monkeypatch.setattr(live, "_source", lambda *_: Dataset.from_list(rows).to_iterable_dataset())
+    monkeypatch.setattr(live, "_group", lambda *_: [])
+
+    async def request(_client, _settings, prompt):
+        assert '"source_scope": "repeated text across live batches"' in prompt
+        parsed = _analysis("low")
+        parsed.claims = parsed.claims[:1]
+        parsed.claims[0].text = "The president is trying to overrule central-bank officials."
+        parsed.claims[0].evidence = ["p1", "p2", "p3"]
+        parsed.techniques = []
+        parsed.templating.evidence = ["p1", "p2", "p3"]
+        return parsed.model_dump_json(), parsed, 1
+
+    monkeypatch.setattr(analyze, "_request_analysis", request)
+    processor = live.LiveProcessor(settings)
+    asyncio.run(processor.run())
+    assert processor.status == "complete", processor.error
+    candidate = next(iter(processor.pattern_results.values()))
+    assert candidate["cluster"]["size"] == 3
+    assert not candidate["cluster"]["behavior_anomaly"]
+    assert candidate["cluster"]["concern_level"] == "medium"
+    assert candidate["analysis"]["parsed"]["confidence"] == 0.4
+    assert any(entry["rule"] == "repeated_cross_account_framing" for entry in candidate["analysis"]["rule_log"])

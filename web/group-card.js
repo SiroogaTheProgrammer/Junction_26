@@ -39,6 +39,9 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}, api
     if (analysis.rule_log?.some((entry) => entry.rule === "swarm_indicators")) {
       concern.append(node("p", "Raised one level: near-identical text from many accounts, above similar groups. Possible swarm; not proof of bots.", "small"));
     }
+    if (analysis.rule_log?.some((entry) => entry.rule === "repeated_cross_account_framing")) {
+      concern.append(node("p", "Medium review concern: copied framing across at least three accounts and multiple batches. The small sample does not establish bots or coordination.", "small"));
+    }
     if (cluster.source_scope === "repeated text across live batches") {
       concern.append(node("p", "Repeated text from multiple accounts across live batches; this overlaps other groups and does not prove coordination.", "small"));
     }
@@ -122,7 +125,9 @@ export function createGroupCard(card, select, onVisibilityChange = () => {}, api
     if (cluster.burstiness_reliable === false) spread.append(node("p", cluster.burstiness_note || "Burst timing is unreliable: the dataset spans fewer than six burst windows. Excluded from spread flags.", "small"));
     if (stats.top_domain) spread.append(node("p", `Top domain: ${stats.top_domain}`, "small"));
     if (stats.top_hashtag) spread.append(node("p", `Top hashtag: #${stats.top_hashtag}`, "small"));
-    spread.append(node("p", cluster.behavior_anomaly ? `Above baseline: ${cluster.anomaly_triggered_by.map(words).join(", ")}` : "No above-threshold behaviour flag; this does not establish that activity is organic.", "small"));
+    spread.append(node("p", cluster.behavior_anomaly ? `Above baseline: ${cluster.anomaly_triggered_by.map(words).join(", ")}` : cluster.signals?.length
+      ? "Duplicate or concentration indicators are present, but no aggregate behaviour flag was raised. Small groups can fall below the minimum analysis size; this is not evidence of organic activity."
+      : "No above-threshold behaviour flag; this does not establish that activity is organic.", "small"));
     const examples = section("Example posts");
     const posts = (analysis.sample || []).slice(0, 5);
     for (const post of posts) examples.append(node("blockquote", post.text, "post"));

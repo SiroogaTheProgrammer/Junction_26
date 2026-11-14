@@ -6,6 +6,7 @@ let current = null;
 let offset = 0;
 let total = 0;
 let request = 0;
+let runPending = false;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -19,6 +20,7 @@ function renderTabs() {
   nav.replaceChildren(...datasets.map((item) => {
     const button = el("button", "plain", item.live ? `${item.name} · live` : item.name);
     button.type = "button";
+    button.disabled = runPending;
     button.setAttribute("aria-pressed", String(item.id === current?.id));
     button.addEventListener("click", () => select(item.id, 0));
     return button;
@@ -69,6 +71,7 @@ function select(id, start) {
   byId("about").textContent = `${current.about} Source: ${current.repo}`;
   history.replaceState(null, "", `?dataset=${current.id}&offset=${offset}`);
   renderTabs();
+  byId("run").disabled = runPending;
   load();
 }
 
@@ -82,6 +85,28 @@ function go(next) {
 byId("prev").addEventListener("click", () => go(offset - PAGE));
 byId("next").addEventListener("click", () => go(offset + PAGE));
 byId("random").addEventListener("click", () => go(Math.floor(Math.random() * Math.max(1, total - PAGE))));
+byId("run").addEventListener("click", async () => {
+  if (runPending) return;
+  const chosen = current;
+  if (!chosen.live && !window.confirm(
+    `Run ${chosen.name}? This switches Live for everyone, clears the current window and resumes this dataset's saved progress. Chat will use the new window.`,
+  )) return;
+  runPending = true;
+  renderTabs();
+  byId("run").disabled = true;
+  byId("run-status").textContent = "Starting live analysis…";
+  try {
+    const response = await fetch(`/api/datasets/${chosen.id}/run`, { method: "POST" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    location.assign(body.url);
+  } catch (error) {
+    byId("run-status").textContent = `Could not start live analysis (${error.message}).`;
+    runPending = false;
+    renderTabs();
+    byId("run").disabled = false;
+  }
+});
 
 try {
   const response = await fetch("/api/datasets");

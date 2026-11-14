@@ -8,7 +8,10 @@ from detector.config import Settings
 
 logger = logging.getLogger(__name__)
 # The Live cursor (and its in-flight atomic write) is the only state Live keeps on disk.
-LIVE_FILES = {"live_progress.json", "live_progress.lock", "live_progress.json.tmp"}
+LIVE_FILES = {
+    "live_progress.json", "live_progress.lock", "live_progress.json.tmp",
+    "live_source.json", "live_source.json.tmp",
+}
 # Only files the app itself writes are removed, so a misconfigured DATA_DIR cannot lose unrelated files.
 APP_SUFFIXES = {".parquet", ".json", ".jsonl", ".npy", ".npz", ".tmp"}
 XET_LOG_MAX_AGE_S = 24 * 3600
