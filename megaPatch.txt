@@ -1,0 +1,241 @@
+right now the detection seems to underrate the actual political propaganda a bit, the bot swarm detection seems to be pretty okay in tuning, but this topic for example, almost certainly should be high. It's the stuff that led to mass takeover of the White House, so be more strict in rating real political call to action, of course calling to voting is different.
+
+Donald Trump and 2020 election discussion with repeated calls to action
+×
+Concern
+medium concern
+Behaviour signals
+near-identical text from 22 different accounts
+Aggregate indicators for review, not proof of bots or shared control.
+Overview
+60 posts in the live batch · confidence 68%
+Cluster posts repeatedly call to action around the 2020 US election, claiming the West coast needs to be 'taken back' and urging voters to remove Democrats, with many posts sharing near-identical campaign text and hashtags.
+The cluster shows a recognisable shared framing about the 2020 election with repeated claims of democrat cheating and calls to vote them out. 22 accounts posted near-identical text, and several posts include coordinated call-to-action templates (retweet, leave @, follow). While the burstiness is not reliable and the time span is short, the volume of near-exact copies across multiple accounts warrants medium concern. The top domain is t.co (Twitter) and top hashtag is trump2020, consistent with election-related discussion.
+Framing
+narrative relevance 76% (narrative): Posts share campaign framing, blame democrats, and call for voter action, meeting criteria for shared public-affairs framing.
+techniques: call to mass action, whataboutism, false urgency
+Cited evidence
+p1: @realDonaldTrump @kennethmallor16 @GavinNewsom @MikeGarcia2020 No amount of democrat cheating will stop whats coming. Take back California, Oregon, Washington. Let's make the West coast a nice place to live again. Vote them out.
+p5: @realDonaldTrump @kennethmallor16 @GavinNewsom @MikeGarcia2020 No amount of democrat cheating will stop whats coming. Take back California, Oregon, Washington. Let's make the West coast a nice place to live again. Vote them out.
+p6: @realDonaldTrump @SecretarySonny @ZippyDuvall You’ve been letting them destroy it for months now. Also, China is mandated by your trade deal to purchase our meat first? What happened to America First? Supermarkets are running out of meat and you’re selling it to China. Every deal you make is the worst. https://t.co/34xnCCpbvK
+p8: Looking to grow your followers? Post your handle below and retweet  this tweet Join the MAGA movement and lets unite for @realDonaldTrump for 2020 🇺🇸🇺🇸🇺🇸🇺🇸🇺🇸🇺🇸🇺🇸🇺🇸🇺🇸🇺🇸🇺🇸 https://t.co/k3nNrNXRPt
+p15: Thank you Lord for giving us ⁦@realDonaldTrump⁩🙏Vote Trump2020🇺🇸🇺🇸Vote out the corrupt socialist/communist democrats &amp; Rino’s! Vote for America! Vote True American Values &amp; grit! Trump Make America Great Again Committee #maga #JesusChrist#savior https://t.co/iL4GKTMxNb
+p17: @realDonaldTrump @GavinNewsom @MikeGarcia2020 Do you support our POTUS? (Please help by retweeting and following before voting!) https://t.co/jkAtzpuLgv https://t.co/KkOgUGAy4d https://t.co/hY5mjiK1Q3 #Ad
+p18: @realDonaldTrump @SecretarySonny @ZippyDuvall Do you support our POTUS? (Please help by retweeting and following before voting!) https://t.co/jkAtzpdaoX https://t.co/KkOgUGS9sN https://t.co/hY5mjisqYv #Ad
+p21: ITS FINALLY HAPPENING!! 
+
+President @POTUS  @realDonaldTrump is DRAINING THE SWAMP!!
+
+✅Raise your hand if you believe these backstabbing frauds need to be removed &amp; Locked Up! 
+
+#LockThemAllUp 
+
+👉Retweet
+👉Leave your @
+👉Follow all Patriots
+❤️Please follow @AngelWarrior321 https://t.co/9XVKNaVESO
+p25: @realDonaldTrump @SecretarySonny @ZippyDuvall With our money..
+p26: ITS FINALLY HAPPENING!! 
+
+President @POTUS  @realDonaldTrump is DRAINING THE SWAMP!!
+
+✅Raise your hand if you believe these backstabbing frauds need to be removed &amp; Locked Up! 
+
+#LockThemAllUp 
+
+👉Retweet
+👉Leave your @
+👉Follow all Patriots
+❤️Please follow @AngelWarrior321 https://t.co/9XVKNaVESO
+p33: ITS FINALLY HAPPENING!!
+
+President @POTUS  @realDonaldTrump is DRAINING THE SWAMP!!
+
+✅Raise your hand if you believe these backstabbing frauds need to be removed &amp; Locked Up! 
+
+#LockThemAllUp 
+
+👉Retweet
+👉Leave your @
+👉Follow all Patriots
+❤️Please follow @AngelWarrior321 https://t.co/9XVKNaVESO
+p44: @realDonaldTrump @SecretarySonny @ZippyDuvall We went from wide-spread prosperity to government-run food pantries and food insecurity for millions in 2 months. Heckuva job, Donnie! Maybe @TheDemocrats @HouseDemocrats @senatemajldr and the press could point this out. https://t.co/8ZMaDQkh5W
+p48: @realDonaldTrump A look at the corrupt Obama administration.
+
+Thread
+https://t.co/W3kgbQlnuy
+p50: 🇺🇸 #PATRIOTSUNITE ❤️
+
+👉 LET'S UNITE FOR TRUMP!
+✅#EVERYVOICECOUNTS #Trump2020
+
+💥@RealDonaldTrump will win in 2020!!!
+
+🔥Let's show our support &amp; help him get re-elected!
+
+🔴Reply with your @
+⚪️Retweet w/o comment
+🔵Follow all that reply &amp;
+✅Follow @FangtasticMAGA IFBAP https://t.co/9QOX0SOLJR
+These are sampled posts; the assessment may not represent every post in the group.
+Spread
+45 authors · 22 authors of near-duplicates · largest repeated group: 4
+Baseline 50-199 · global fallback · 7 groups
+SignalValuep50p90Near-duplicates36.67%100%100%Exact duplicates36.67%——Authors / post75%100%100%Top author8.33%9.09%12.67%Top 5 authors28.33%38.89%47.27%10-minute burst76.67%76.67%89.09%Top link domain70%0%73.11%Posts with links70%——Top hashtag8.33%0%22.77%Posts with imagesunknown——
+Burst timing is excluded because this window cannot establish a reliable dataset-wide time baseline.
+Top domain: t.co
+Top hashtag: #trump2020
+Duplicate or concentration indicators are present, but no aggregate behaviour flag was raised. Small groups can fall below the minimum analysis size; this is not evidence of organic activity.
+Example posts
+@realDonaldTrump @kennethmallor16 @GavinNewsom @MikeGarcia2020 No amount of democrat cheating will stop whats coming. Take back California, Oregon, Washington. Let's make the West coast a nice place to live again. Vote them out.
+@WarriorOregon @realDonaldTrump Tick Tock https://t.co/TrppeSjmih
+@LifeLighted @realDonaldTrump This is outrageous.
+@realDonaldTrump @GavinNewsom @MikeGarcia2020 Pictures from the protest in Ventura California! https://t.co/W57nyytzVO
+@realDonaldTrump @kennethmallor16 @GavinNewsom @MikeGarcia2020 No amount of democrat cheating will stop whats coming. Take back California, Oregon, Washington. Let's make the West coast a nice place to live again. Vote them out.
+
+This one seems to be rated a bit high, since it represents more just people being angry and loud, and the signs of a disinformation campaign are not too high:
+
+Sustained criticism of Donald Trump's pandemic response with MourningInAmerica framing
+×
+Concern
+medium concern
+Behaviour signals
+near-identical text from 8 different accounts
+Aggregate indicators for review, not proof of bots or shared control.
+Overview
+22 posts in the live batch · confidence 71%
+Multiple users repeatedly assert that Donald Trump's presidency caused bread lines, mass unemployment, and 80,000+ COVID-19 deaths, calling for his resignation or defeat. Text is near-identical across many accounts.
+Near-identical substantive claims about Trump causing 80K+ deaths and economic ruin appear across 8+ accounts and repeat across multiple posts (p1, p3, p12, p18, p22). Hashtag #MourningInAmerica is used consistently. The cluster constructs a shared narrative blaming Trump for pandemic outcomes, with calls for resignation/defeat. However, the sample size (22 posts, 15 authors) and presence of multiple dominant voices means coordination is not proven. The medium concern reflects the shared framing detected by exact duplication and consistent hashtag use, not evidence of bots or falsehood.
+Framing
+narrative relevance 78% (narrative): Posts construct a shared public-affairs framing blaming Trump for pandemic harms; exact copies appear across 8+ accounts and multiple clusters.
+techniques: fear appeal, whataboutism, call to mass action
+Cited evidence
+p1: 3yrs of @realDonaldTrump put us in bread lines, 30million unemployed, 80,000 dead within 2 months, 1.3million sick, adding trillions to debt, destroyed rule of law &amp; our democracy, rolled back environmental protections, losing allies, &amp; weakened America's standing in the world. https://t.co/XXzqTRAIQG
+p2: @realDonaldTrump @SecretarySonny @ZippyDuvall 15% unemployment
+
+36 million out of work
+
+80,000 dead
+
+Economy tanked
+
+Hate crimes abounding
+
+America is a dumpster fire
+
+You are the arsonist
+
+Resign
+p3: 3yrs of @realDonaldTrump put us in bread lines, 30million unemployed, 80,000 dead within 2 months, 1.3million sick, adding trillions to debt, destroyed rule of law &amp; our democracy, rolled back environmental protections, losing allies, &amp; weakened America's standing in the world. https://t.co/XXzqTRAIQG
+p4: @madisongesiotto @realDonaldTrump hey donnie
+
+YOUR DAILY DEATH COUNT
+
+79,299 AMERICANS
+
+HOW MANY WILL YOU INFECT TODAY?
+
+RESIGN NOW!
+p5: @madisongesiotto @realDonaldTrump Nearly 80,000 dead Americans 33.5 million unemployed and a nearly 52% disapproval rate and rising but keep blowing smoke up your asses--maybe if you add UV light and Clorox, it'll kill the virus. #TrumpLiesPeopleDie #TrumpGenocide
+p6: @madisongesiotto @realDonaldTrump 79K Americans are dead and all he cares about are his 'approval ratings'. https://t.co/ZBYPoLLclH
+p12: 3yrs of @realDonaldTrump put us in bread lines, 30million unemployed, 80,000 dead within 2 months, 1.3million sick, adding trillions to debt, destroyed rule of law &amp; our democracy, rolled back environmental protections, losing allies, &amp; weakened America's standing in the world. https://t.co/XXzqTRAIQG
+p13: @madisongesiotto @realDonaldTrump hey donnie
+
+YOUR DAILY DEATH COUNT
+
+79,299 AMERICANS
+
+HOW MANY WILL YOU INFECT TODAY?
+
+RESIGN NOW!
+p14: @realDonaldTrump Just a reminder that there is #MourningInAmerica because you are still lying to the American people.
+
+2 months ago today, you told us to "Think about that!" when there were 22 deaths from the coronavirus. There are now 80K deaths.
+
+Think about THAT! https://t.co/LT6AnTJNS8
+p16: @realDonaldTrump @SecretarySonny @ZippyDuvall Remember a couple of weeks ago when you were saying that Obama did such a horrible job during the swine flu pandemic because 17,000 people died in 20 months?
+
+80,000 are dead of COVID-19, 10,000 in the last week.
+
+You should resign.
+p17: @realDonaldTrump @realdonaldtrump’s failed presidency has left the nation weaker, sicker, and teetering on the verge of a new Great Depression. There’s 
+
+mourning in America. @ProjectLincoln #DumpTrump2020 https://t.co/gqrh3wya6n
+p18: @realDonaldTrump Tell us AGAIN @realDonaldTrump what a "A SPECTACULAR JOB" you're doing:
+
+70+ DAYS WASTED
+
+33.5 MILLION UNEMPLOYED / 14.7% 
+
+80,735 Americans DEAD  (5/9/20) 
+
+26 TIMES More DEAD than 9/11  
+
+22,000 + MORE DEAD than VIETNAM WAR 
+
+@realDonaldTrump ~ ”DEADIEST American President”
+p19: @realDonaldTrump @SecretarySonny @ZippyDuvall 15% unemployment
+
+36 million out of work
+
+80,000 dead
+
+Economy tanked
+
+Hate crimes abounding
+
+America is a dumpster fire
+
+You are the arsonist
+
+Resign
+p20: @realDonaldTrump By days End 80,000 Americans will be DEAD. 
+
+LOST in 2 months.  
+
+GONE FOREVER because of @realDonaldTrump 
+
+33.5 MILLION UNEMPLOYED / 14.7%
+
+He’s FAILED • He’s CORRUPT • He DOESN’T CARE 
+
+@realDonaldTrump ~ The DEADLIEST President in America’s History 
+
+#MourningInAmerica💔💔 https://t.co/qWbY11Ns2n
+These are sampled posts; the assessment may not represent every post in the group.
+Spread
+15 authors · 8 authors of near-duplicates · largest repeated group: 3
+Baseline global · global fallback · 10 groups
+SignalValuep50p90Near-duplicates40.91%97.22%100%Exact duplicates40.91%——Authors / post68.18%100%100%Top author18.18%9.09%18.67%Top 5 authors54.55% ↑43.56%53.92%10-minute burst50%77.5%85.39%Top link domain45.45%2.78%75.11%Posts with links45.45%——Top hashtag9.09%0%10.1%Posts with imagesunknown——
+Burst timing is excluded because this window cannot establish a reliable dataset-wide time baseline.
+Top domain: t.co
+Top hashtag: #mourninginamerica
+Duplicate or concentration indicators are present, but no aggregate behaviour flag was raised. Small groups can fall below the minimum analysis size; this is not evidence of organic activity.
+Example posts
+3yrs of @realDonaldTrump put us in bread lines, 30million unemployed, 80,000 dead within 2 months, 1.3million sick, adding trillions to debt, destroyed rule of law &amp; our democracy, rolled back environmental protections, losing allies, &amp; weakened America's standing in the world. https://t.co/XXzqTRAIQG
+@realDonaldTrump @SecretarySonny @ZippyDuvall 15% unemployment
+
+36 million out of work
+
+80,000 dead
+
+Economy tanked
+
+Hate crimes abounding
+
+America is a dumpster fire
+
+You are the arsonist
+
+Resign
+3yrs of @realDonaldTrump put us in bread lines, 30million unemployed, 80,000 dead within 2 months, 1.3million sick, adding trillions to debt, destroyed rule of law &amp; our democracy, rolled back environmental protections, losing allies, &amp; weakened America's standing in the world. https://t.co/XXzqTRAIQG
+@madisongesiotto @realDonaldTrump hey donnie
+
+YOUR DAILY DEATH COUNT
+
+79,299 AMERICANS
+
+HOW MANY WILL YOU INFECT TODAY?
+
+RESIGN NOW!
+@madisongesiotto @realDonaldTrump Nearly 80,000 dead Americans 33.5 million unemployed and a nearly 52% disapproval rate and rising but keep blowing smoke up your asses--maybe if you add UV light and Clorox, it'll kill the virus. #TrumpLiesPeopleDie #TrumpGenocide

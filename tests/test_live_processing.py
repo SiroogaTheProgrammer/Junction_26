@@ -786,10 +786,13 @@ def test_batch_and_pattern_reviews_share_the_real_analyzers_32_request_limit(tmp
     asyncio.run(verify())
 
 
-def test_dataset_run_switches_processing_chat_window_and_survives_restart(tmp_path, monkeypatch):
+@pytest.mark.parametrize("configured_trump", [True, False])
+def test_locked_trump_processing_preserves_cursor_and_chat_across_restart(tmp_path, monkeypatch, configured_trump):
+    trump = api.DATASETS["trump-2020"]["repo"]
     settings = Settings(
         _env_file=None, data_dir=tmp_path, llm_api_key="test-key",
         live_batch_size=25, live_window_posts=50, storage_cleanup=False,
+        live_dataset=trump if configured_trump else api.DATASETS["bluesky"]["repo"],
     )
     monkeypatch.setattr(api, "settings", settings)
     monkeypatch.setattr(live, "_resolve_revision", lambda _: "fixed-revision")
@@ -811,34 +814,73 @@ def test_dataset_run_switches_processing_chat_window_and_survives_restart(tmp_pa
         return Dataset.from_list(rows).to_iterable_dataset()
 
     monkeypatch.setattr(live, "_source", source)
+    live.write_json(tmp_path / "live_source.json", {"id": "trump-2020"})
+    checkpoint = (tmp_path if configured_trump else tmp_path / "live-sources" / "trump-2020") / "live_progress.json"
     with TestClient(api.app) as client:
         assert client.get("/api/live/processed").status_code == 200
-        original = (tmp_path / "live_progress.json").read_bytes()
-        old = api.app.state.live
-        assert len(old.chat_context()[2]) == 25
-        assert client.post("/api/datasets/trump-2020/run").json()["url"] == "/live"
-        assert not old.index
-        assert client.get("/api/live/processed").status_code == 200
+        original = checkpoint.read_bytes()
         active = api.app.state.live
         assert active.status == "complete"
+        assert len(active.chat_context()[2]) == 25
         assert all("Trump dataset" in text for text in active.chat_context()[2].values())
-        assert (tmp_path / "live_progress.json").read_bytes() == original
-        alternate = tmp_path / "live-sources" / "trump-2020" / "live_progress.json"
-        assert live.read_json(alternate)["processed"] == 25
+        assert live.read_json(checkpoint)["processed"] == 25
         assert live.read_json(tmp_path / "live_source.json") == {"id": "trump-2020"}
         assert {item["id"] for item in client.get("/api/datasets").json() if item["live"]} == {"trump-2020"}
-        assert client.post("/api/datasets/trump-2020/run").status_code == 200
+        for dataset in ("trump-2020", "bluesky"):
+            assert client.post(f"/api/datasets/{dataset}/run").status_code == 403
         assert api.app.state.live is active
+        assert checkpoint.read_bytes() == original
+
+    # Even a changed deployment default must not move or reset the Trump cursor.
+    monkeypatch.setattr(api, "settings", settings.model_copy(update={
+        "live_dataset": api.DATASETS["bluesky"]["repo"] if configured_trump else trump,
+    }))
+    with TestClient(api.app) as client:
+        assert api.app.state.live.settings.live_dataset == trump
+        client.get("/api/live/processed")
+        assert opened == [trump]  # Finished cursors are not silently replayed.
+        assert api.app.state.live.checkpoint_path == checkpoint
+        assert api.app.state.live.processed == 25
+        assert checkpoint.read_bytes() == original
+        assert live.read_json(tmp_path / "live_source.json") == {"id": "trump-2020"}
+
+
+def test_locked_trump_resumes_unfinished_checkpoint_without_replaying_rows(tmp_path, monkeypatch):
+    settings = Settings(
+        _env_file=None, data_dir=tmp_path, llm_api_key="test-key",
+        live_batch_size=25, live_window_posts=50, storage_cleanup=False,
+    )
+    monkeypatch.setattr(api, "settings", settings)
+    monkeypatch.setattr(live, "choose_device", lambda _: "cpu")
+    monkeypatch.setattr(live, "load_model", lambda *_: object())
+    monkeypatch.setattr(live, "_group", lambda *_: [])
+    monkeypatch.setattr(live, "create_client", lambda _: AsyncMock())
+    rows = [{"source_id": 500 + i, "date": "2020-05-10 07:00:00",
+             "texto": f"A sufficiently long Trump dataset example number {i}"} for i in range(50)]
+    source = Dataset.from_list(rows).to_iterable_dataset()
+    iterator = iter(source)
+    for _ in range(25):
+        next(iterator)
+    checkpoint = live.LiveCheckpoint(
+        dataset=api.DATASETS["trump-2020"]["repo"],
+        requested_revision=settings.live_dataset_revision,
+        resolved_revision="fixed-revision", source_state=source.state_dict(),
+        scanned=25, processed=25, group_id=7,
+    )
+    path = tmp_path / "live-sources" / "trump-2020" / "live_progress.json"
+    live.write_json(path, checkpoint.model_dump(mode="json"))
+    live.write_json(tmp_path / "live_source.json", {"id": "bluesky"})
+    original = path.read_bytes()
+    monkeypatch.setattr(live, "_source", lambda *_: Dataset.from_list(rows).to_iterable_dataset())
 
     with TestClient(api.app) as client:
-        assert api.app.state.live.settings.live_dataset == api.DATASETS["trump-2020"]["repo"]
+        assert path.read_bytes() == original
+        assert client.post("/api/datasets/bluesky/run").status_code == 403
         client.get("/api/live/processed")
-        assert len(opened) == 2  # Finished cursors are not silently replayed.
-        assert client.post("/api/datasets/bluesky/run").status_code == 200
-        client.get("/api/live/processed")
-        assert api.app.state.live.settings.data_path == tmp_path
-        assert api.app.state.live.processed == 25
-        assert (tmp_path / "live_progress.json").read_bytes() == original
+        processor = api.app.state.live
+        assert processor.status == "complete"
+        assert processor.resumed_from == 25 and processor.processed == 50
+        assert set(processor.chat_context()[2].values()) == {row["texto"] for row in rows[25:]}
         assert live.read_json(tmp_path / "live_source.json") == {"id": "bluesky"}
 
 

@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from detector.chat import ChatInputError, ChatUpstreamError, Placer, run_chat
 from detector.config import Settings, get_settings
 from detector.embedding import VECTOR_SIZE
-from detector.io import read_json, read_jsonl, require_artifact, write_json
+from detector.io import read_json, read_jsonl, require_artifact
 from detector.llm import create_client, create_super_client, super_configured
 from detector.projection import ProjectionModel
 from detector.prompts import PROMPT_VERSION
@@ -169,9 +169,7 @@ async def lifespan(app: FastAPI):
     if selected is not None:
         if not isinstance(selected, dict) or selected.get("id") not in DATASETS:
             raise ValueError("Invalid saved Live dataset selection in live_source.json")
-        live_settings = _dataset_settings(selected["id"])
-    else:
-        live_settings = settings
+    live_settings = _dataset_settings("trump-2020")
     app.state.live = LiveProcessor(live_settings)
     app.state.dashboard = None
     cleaner = asyncio.create_task(_storage_cleanup(app)) if settings.storage_cleanup else None
@@ -189,6 +187,20 @@ def _dataset_settings(dataset_id: str) -> Settings:
     data_dir = settings.data_path if repo == settings.live_dataset else (
         settings.data_path / "live-sources" / dataset_id
     )
+    # Keep an existing cursor even if the deployment default was changed.
+    candidates = [settings.data_path, settings.data_path / "live-sources" / dataset_id]
+    matching = []
+    for path in candidates:
+        checkpoint = read_json(path / "live_progress.json")
+        if checkpoint is not None:
+            if not isinstance(checkpoint, dict):
+                raise ValueError(f"Invalid Live checkpoint in {path}")
+            if checkpoint.get("dataset") == repo:
+                matching.append(path)
+    if len(matching) > 1:
+        raise ValueError(f"Multiple saved cursors for {repo}; choose the current checkpoint before restarting.")
+    if matching:
+        data_dir = matching[0]
     return settings.model_copy(update={"live_dataset": repo, "data_dir": data_dir})
 
 
@@ -631,36 +643,10 @@ def list_datasets(request: Request) -> list[dict[str, Any]]:
 
 
 @app.post("/api/datasets/{dataset_id}/run")
-async def run_dataset(dataset_id: str, request: Request) -> dict[str, Any]:
-    from detector.live import LiveProcessor
-
+async def run_dataset(dataset_id: str) -> dict[str, Any]:
     if dataset_id not in DATASETS:
         raise HTTPException(status_code=404, detail="Unknown dataset")
-    if not settings.llm_api_key or not settings.llm_api_key.get_secret_value().strip():
-        raise HTTPException(status_code=503, detail="Configure LLM_API_KEY for Live analysis.")
-    async with request.app.state.live_lock:
-        old = request.app.state.live
-        if old.settings.live_dataset == DATASETS[dataset_id]["repo"]:
-            old.start()
-            return {"dataset": old.settings.live_dataset, "url": "/live"}
-        try:
-            write_json(settings.data_path / "live_source.json", {"id": dataset_id})
-        except OSError as exc:
-            logger.exception("Could not save Live dataset selection")
-            raise HTTPException(status_code=500, detail="Could not save Live dataset selection.") from exc
-        await old.close()
-        processor = LiveProcessor(_dataset_settings(dataset_id))
-        # An in-flight chat snapshot can still finish, but the old window is no longer available.
-        old.index.clear()
-        old.batches.clear()
-        old.pattern_results.clear()
-        old.pattern_ids.clear()
-        old.patterns.posts.clear()
-        old.patterns.batches.clear()
-        request.app.state.live = processor
-        processor.start()
-        logger.info("Switched shared Live dataset to %s", processor.settings.live_dataset)
-        return {"dataset": processor.settings.live_dataset, "url": "/live"}
+    raise HTTPException(status_code=403, detail="Dataset switching is disabled. Live analysis uses US Trump 2020.")
 
 
 @app.get("/api/datasets/{dataset_id}/rows")

@@ -198,7 +198,7 @@ def test_dataset_browser_lists_allowed_datasets_and_pages_rows(tmp_path, monkeyp
         assert client.get("/data").status_code == 200
         listed = {item["id"]: item for item in client.get("/api/datasets").json()}
         assert listed["trump-2020"]["repo"] == "falbanese/US_Trump_2020_social_media"
-        assert listed["bluesky"]["live"] is True and listed["trump-2020"]["live"] is False
+        assert listed["bluesky"]["live"] is False and listed["trump-2020"]["live"] is True
         body = client.get("/api/datasets/trump-2020/rows?offset=25&length=1").json()
         assert body == {"id": "trump-2020", "repo": "falbanese/US_Trump_2020_social_media", "columns": ["texto", "source_id"],
                         "rows": [{"texto": "hello", "source_id": 509}], "offset": 25, "total": 2_300_000}
@@ -227,11 +227,16 @@ def test_server_runs_storage_cleanup_at_startup_only_when_enabled(tmp_path, monk
     assert calls == ([tmp_path] if enabled else [])
 
 
-def test_dataset_run_rejects_unknown_or_unconfigured_source_without_changing_progress(tmp_path, monkeypatch):
+def test_dataset_run_is_disabled_without_changing_progress(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "settings", Settings(_env_file=None, data_dir=tmp_path, llm_api_key=None))
     with TestClient(api.app) as client:
         processor = api.app.state.live
         assert client.post("/api/datasets/unknown/run").status_code == 404
-        assert client.post("/api/datasets/trump-2020/run").status_code == 503
+        for dataset in ("trump-2020", "bluesky"):
+            response = client.post(f"/api/datasets/{dataset}/run")
+            assert response.status_code == 403
+            assert "switching is disabled" in response.json()["detail"]
         assert api.app.state.live is processor
         assert not (tmp_path / "live_source.json").exists()
+        assert 'id="run"' not in client.get("/data").text
+        assert "/run" not in client.get("/assets/data.js").text

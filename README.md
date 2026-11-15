@@ -56,7 +56,7 @@ multiple accounts. These overlapping candidates can be missed or be benign;
 they require human review. For chat, Super reads the submitted material and
 its content assessment is kept separate from the spread review.
 
-## Browse or switch datasets
+## Browse datasets
 
 Select **Browse datasets** on the menu to read the raw posts, 25 at a time.
 Use **next**, **previous** or **random page**. The dataset used by live
@@ -65,31 +65,20 @@ needs internet access and shows the dataset's latest version. Two datasets are
 available:
 
 - **Bluesky posts in 15 languages** (`itsmebatuhan/bluesky-10m-posts-15-languages`),
-  the default for live analysis.
+  available for read-only browsing.
 - **US Trump 2020 social media** (`falbanese/US_Trump_2020_social_media`):
   about 2.3 million Twitter posts from May 2020, MIT licence. It has only
   numeric author and target IDs, a date and the text: no post links, language
   or image information, and the timezone is not stated (times are read as UTC).
   Posts are identified by their position in the dataset.
 
-To **run** a dataset, select its tab and click **Run live analysis**. Confirm
-the switch, then the Live page opens. No `.env` or Compose edits are needed.
-Switching changes the shared source for **everyone**, clears the current
-in-memory window and makes chat use the selected dataset as its batches finish.
-Existing Live pages reload when the source changes.
-
-Each dataset resumes its own saved position. The configured default keeps its
-existing checkpoint in `DATA_DIR`; the other dataset keeps one under
-`DATA_DIR/live-sources/<dataset-id>`. Only one processor runs at a time.
-The selected source is saved in `DATA_DIR/live_source.json` and survives app
-restarts; automatic storage cleanup preserves this file and both cursors.
-Switching back does not replay an exhausted dataset. Model failures are shown
-on the Live page, and the source remains finite.
-
-`LIVE_DATASET` still sets the initial deployment default before any UI
-selection is saved. Protect public access: the Run action starts remote model
-requests and changes the shared session, so it should only be available to
-trusted users.
+**Live analysis and chat are locked to US Trump 2020.** Dataset switching is
+disabled in both the page and API; browsing another dataset does not change Live.
+The app resumes the existing Trump checkpoint in `DATA_DIR` or
+`DATA_DIR/live-sources/trump-2020`, without resetting it or changing the saved
+source file. Do not delete or move these files when deploying.
+Restarts rebuild the in-memory window from subsequent batches; they do not
+restore the old window or replay an exhausted dataset.
 
 ## Start it on your computer
 
@@ -201,7 +190,7 @@ unknown for this dataset. The older `author`/`uri` dataset remains supported.
 | `SAMPLE_SIZE` | Posts sampled per group for analysis (default 50, or all posts in a smaller group); an explicit `.env` value overrides the default |
 | `HF_DATASET` | Defaults to `itsmebatuhan/bluesky-10m-posts-15-languages`; `--dataset` overrides an older `.env` value |
 | `MIN_REVIEW_PRIORITY` | Current completed groups below this score are dropped (default 1; stale assessments remain visible) |
-| `LIVE_DATASET` | Dataset streamed in the live test; defaults to the 15-language Bluesky dataset. `falbanese/US_Trump_2020_social_media` is also supported (use a separate `DATA_DIR`) |
+| `LIVE_DATASET` | Original dataset setting used to locate checkpoints. The web app is locked to US Trump 2020; leave this setting and `DATA_DIR` unchanged to preserve progress |
 | `LIVE_DATASET_REVISION` | Dataset revision to resolve on the first run (default `main`); its commit is pinned in the checkpoint |
 | `LIVE_BATCH_SIZE`, `LIVE_WINDOW_POSTS` | Live batch size (500) and maximum rolling window (50,000); batch size must not exceed the window |
 | `LIVE_PIPELINE_BATCHES` | Up to 4 batches in flight (1–8); upcoming batches are prepared while earlier groups await the LLM. Set 1 for serial processing |

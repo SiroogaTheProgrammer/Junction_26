@@ -38,7 +38,7 @@ All colours and sizes are CSS variables in `:root` in `styles.css`. No other col
 
 Left-aligned column, at most 620 px wide: title, tagline, two plain text rows with an arrow (Open live analysis, Browse datasets), one status line from `/api/live/chat/status`, and the honesty notes. No buttons.
 
-**Browse datasets (`/data`):** text tabs for the allowed datasets (the Live source is marked "live"), a one-line description with licence and missing metadata, previous/next/random paging, and 25 rounded row cards showing the post text with the other columns in small text. Rows are proxied read-only from the Hugging Face rows API through `GET /api/datasets/{id}/rows`; only datasets listed by `GET /api/datasets` can be read, and failures are shown explicitly. A text-only **Run live analysis** control calls `POST /api/datasets/{id}/run`, confirms that switching affects everyone and clears the current window, then opens Live. One source runs at a time, separate cursors and the selected source survive restarts, and open Live pages reload on a source change.
+**Browse datasets (`/data`):** text tabs for the allowed datasets (the Live source is marked "live"), a one-line description with licence and missing metadata, previous/next/random paging, and 25 rounded row cards showing the post text with the other columns in small text. Rows are proxied read-only from the Hugging Face rows API through `GET /api/datasets/{id}/rows`; only datasets listed by `GET /api/datasets` can be read, and failures are shown explicitly. There is no Run control; `POST /api/datasets/{id}/run` rejects switching. Live and chat are locked to US Trump 2020 and retain the existing Trump checkpoint across restarts.
 
 ## 4. Group balls (shared by Explore and Live test, `map.js`)
 
